@@ -1,0 +1,9 @@
+{
+  "name": "Vegan Forest Festival 2026",
+  "short_name": "VFF 2026",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f3f1ea",
+  "theme_color": "#1c7c5d",
+  "icons": []
+}

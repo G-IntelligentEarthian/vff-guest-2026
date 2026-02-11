@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vegan Forest Festival 2026</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <header class="hero">
+      <div class="hero-inner">
+        <div class="hero-badge">Vegan Forest Festival</div>
+        <h1>Guest Schedule & Guide</h1>
+        <p class="hero-sub">Public, lightweight, and updates instantly when you edit the backend sheet.</p>
+        <div class="hero-meta">
+          <div class="meta-chip" id="festival-dates">Feb 13–15, 2026</div>
+          <div class="meta-chip">6+ Venues • 3 Days</div>
+        </div>
+        <div class="hero-actions">
+          <a class="btn" href="#schedule">Open Schedule</a>
+          <a class="btn ghost" href="#travel">Travel Emissions</a>
+          <a class="btn ghost" href="#contacts">Contact Notes</a>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section id="schedule" class="section">
+        <div class="section-head">
+          <h2>Schedule</h2>
+          <p>Filter by day, venue, or search by speaker/session. All times are local to the festival.</p>
+        </div>
+
+        <div id="day-tabs" class="day-tabs"></div>
+        <div class="filters">
+          <select id="day-filter" aria-label="Filter by day"></select>
+          <select id="venue-filter" aria-label="Filter by venue"></select>
+          <input id="search-input" type="search" placeholder="Search session, speaker, or tag" />
+          <button id="now-btn" class="btn small">Now / Next</button>
+        </div>
+
+        <div id="now-card" class="now-card hidden"></div>
+        <div id="schedule-list" class="schedule-list"></div>
+        <div id="empty-state" class="empty-state hidden">No sessions match those filters.</div>
+
+        <div class="saved">
+          <h3>My Plan</h3>
+          <p class="muted">Saved sessions appear here so guests can skim what’s next.</p>
+          <div id="saved-next" class="now-card hidden"></div>
+          <div id="saved-list" class="schedule-list"></div>
+          <div id="saved-empty" class="empty-state">No saved sessions yet.</div>
+        </div>
+      </section>
+
+      <section id="travel" class="section travel">
+        <div class="section-head">
+          <h2>Travel Emissions</h2>
+          <p>Help guests make low‑impact choices before and during travel.</p>
+        </div>
+        <div class="travel-grid">
+          <div class="card">
+            <h3>Quick Check</h3>
+            <p class="muted">Pick your travel mode to see suggested actions.</p>
+            <div class="travel-buttons">
+              <button class="chip" data-mode="walk">Walk</button>
+              <button class="chip" data-mode="bike">Bike</button>
+              <button class="chip" data-mode="bus">Bus</button>
+              <button class="chip" data-mode="train">Train</button>
+              <button class="chip" data-mode="car">Car</button>
+              <button class="chip" data-mode="carpool">Carpool</button>
+            </div>
+            <div id="travel-tip" class="travel-tip">Choose a mode to see tips.</div>
+          </div>
+          <div class="card">
+            <h3>Festival Tips</h3>
+            <ul class="list">
+              <li>Bring a refillable bottle and re-use it all weekend.</li>
+              <li>Combine trips between venues; walk when possible.</li>
+              <li>Share rides with at least 2+ guests if driving is required.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="contacts" class="section">
+        <div class="section-head">
+          <h2>Contact Notes</h2>
+          <p>Guests can save their contact handles in a simple form you control.</p>
+        </div>
+        <div class="contact-grid">
+          <div class="card">
+            <h3>Guest Card</h3>
+            <p class="muted">Submit LinkedIn, WhatsApp, Instagram, or phone details.</p>
+            <a class="btn" id="contact-form-link" href="#" target="_blank" rel="noreferrer">Open Contact Form</a>
+            <p class="small muted">You can point this to a Google Form or Airtable form.</p>
+          </div>
+          <div class="card">
+            <h3>Privacy</h3>
+            <p class="muted">Public schedule only. Contact data stays in your private backend.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="admin" class="section admin">
+        <div class="section-head">
+          <h2>Backend Updates</h2>
+          <p>Edit the schedule in one Google Sheet and the app updates instantly.</p>
+        </div>
+        <div class="card">
+          <ol class="list ordered">
+            <li>Create a Google Sheet with the columns in the template.</li>
+            <li>Publish the sheet to the web as CSV.</li>
+            <li>Paste the CSV URL into <code>app.js</code>.</li>
+          </ol>
+          <p class="small muted">Your sheet is already wired. If it doesn't load, make sure the sheet is shared as “Anyone with the link” and published to the web.</p>
+        </div>
+      </section>
+
+      <section id="developer" class="section">
+        <div class="section-head">
+          <h2>Developer</h2>
+          <p class="muted">Built by a tech enthusiast and not affiliated with Sadhana Forest admins. For questions, clarifications, or suggestions, email me or connect on social.</p>
+        </div>
+        <div class="dev-links">
+          <a class="icon-link" href="mailto:susfinity05@gmail.com" aria-label="Email">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zm0 2v.3l8 5.2 8-5.2V8H4zm16 8V9.6l-8 5.2-8-5.2V16h16z"/>
+            </svg>
+          </a>
+          <a class="icon-link" href="https://www.linkedin.com/in/aravindg-deeptech/" target="_blank" rel="noreferrer" aria-label="LinkedIn">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm3.3 6.2H5.4v9.4h1.9V9.2zm-.9-2.9a1.1 1.1 0 1 0 0 2.2 1.1 1.1 0 0 0 0-2.2zM10 9.2H8.1v9.4H10v-5.2c0-1.2.6-2 1.7-2 1 0 1.4.7 1.4 2v5.2h1.9v-5.7c0-2.4-1.4-3.7-3.2-3.7-1.5 0-2.1.8-2.3 1.4V9.2z"/>
+            </svg>
+          </a>
+          <a class="icon-link" href="https://www.instagram.com/a_raw_wind/" target="_blank" rel="noreferrer" aria-label="Instagram">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4zm10 2H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm-5 3.5a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9zm0 2a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zm4.8-1.9a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/>
+            </svg>
+          </a>
+        </div>
+        <p class="small muted">Email: susfinity05@gmail.com</p>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div>Vegan Forest Festival 2026 • Guest Schedule</div>
+      <div class="small">Made lightweight for 300+ guests.</div>
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
