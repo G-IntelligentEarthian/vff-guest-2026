@@ -50,6 +50,7 @@ const elements = {
 };
 
 const STORAGE_KEY = "vff_saved_sessions";
+const SCHEDULE_CACHE_KEY = "vff_cached_schedule";
 
 function initMeta() {
   if (CONFIG.festivalDates) {
@@ -120,6 +121,23 @@ function setSavedIds(ids) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
 }
 
+function setCachedSchedule(items) {
+  try {
+    localStorage.setItem(SCHEDULE_CACHE_KEY, JSON.stringify(items));
+  } catch (err) {
+    // Ignore storage errors.
+  }
+}
+
+function getCachedSchedule() {
+  try {
+    const raw = localStorage.getItem(SCHEDULE_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    return null;
+  }
+}
+
 function normalizeSchedule(data) {
   return data
     .filter((item) => item.day && item.start_time && item.title)
@@ -166,7 +184,11 @@ async function loadSchedule() {
     });
 
     const normalized = normalizeSchedule(items);
-    return normalized.length ? normalized : null;
+    if (normalized.length) {
+      setCachedSchedule(normalized);
+      return normalized;
+    }
+    return null;
   };
 
   try {
@@ -182,6 +204,9 @@ async function loadSchedule() {
   } catch (err) {
     // Ignore and fall back to minimal default.
   }
+
+  const cached = getCachedSchedule();
+  if (cached?.length) return cached;
 
   return defaultSchedule;
 }
