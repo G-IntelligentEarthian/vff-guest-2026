@@ -4,8 +4,6 @@ const CONFIG = {
   scheduleCsvUrl: "https://docs.google.com/spreadsheets/d/1Yw24ECctBPCMWJejqsEB41XYBx0d8wJGAl2MNSuCyeI/gviz/tq?tqx=out:csv",
   // Local fallback for testing.
   localScheduleUrl: "schedule_extracted.csv",
-  // Replace with your Google Form / Airtable form URL.
-  contactFormUrl: "",
   timezone: "Asia/Kolkata",
 };
 
@@ -46,7 +44,6 @@ const elements = {
   travelButtons: document.querySelectorAll(".travel-buttons .chip"),
   travelTip: document.getElementById("travel-tip"),
   festivalDates: document.getElementById("festival-dates"),
-  contactFormLink: document.getElementById("contact-form-link"),
 };
 
 const STORAGE_KEY = "vff_saved_sessions";
@@ -55,11 +52,6 @@ const SCHEDULE_CACHE_KEY = "vff_cached_schedule";
 function initMeta() {
   if (CONFIG.festivalDates) {
     elements.festivalDates.textContent = CONFIG.festivalDates;
-  }
-  if (CONFIG.contactFormUrl) {
-    elements.contactFormLink.href = CONFIG.contactFormUrl;
-  } else {
-    elements.contactFormLink.classList.add("hidden");
   }
 }
 
