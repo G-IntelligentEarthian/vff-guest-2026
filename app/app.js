@@ -12,34 +12,35 @@ const SORT_KEY = "vff_saved_sort";
 const NOTIFY_ASKED_KEY = "vff_notify_asked";
 const NOTIFY_SENT_KEY = "vff_notify_sent";
 const POWER_MODE_KEY = "vff_low_power_mode";
-const A2HS_DISMISSED_KEY = "vff_a2hs_dismissed";
+const A2HS_SNOOZE_UNTIL_KEY = "vff_a2hs_snooze_until";
 const VISIT_KEY = "vff_visit_count";
+const SW_LATER_UNTIL_KEY = "vff_sw_later_until";
 
 const travelModes = {
   walk: {
     icon: "🚶",
     className: "good",
-    text: "Excellent! ~0 kg CO2 emitted. Perfect for short distances in Auroville.",
+    text: "Excellent! ~0 kg CO2 emitted. Perfect for short distances.",
   },
   bike: {
     icon: "🚴",
     className: "good",
-    text: "Excellent! ~0 kg CO2 emitted. Perfect for short distances in Auroville.",
+    text: "Excellent! ~0 kg CO2 emitted. Perfect for short distances.",
   },
   bus: {
     icon: "🚌",
     className: "mid",
-    text: "Low-impact public transport: aim for shared rides from Chennai or Pondicherry. ~40-80 g CO2 per passenger/km.",
+    text: "Low-impact transport (~40-80g CO2/passenger/km).",
   },
   train: {
     icon: "🚆",
     className: "mid",
-    text: "Low-impact public transport: aim for shared rides from Chennai or Pondicherry. ~40-80 g CO2 per passenger/km.",
+    text: "Low-impact transport (~40-80g CO2/passenger/km).",
   },
   car: {
     icon: "🚗",
     className: "warn",
-    text: "High emissions (~3240 g CO2 per person for a 20km ride). Consider carpooling instead. Typical range: 162-320 g CO2 per passenger/km.",
+    text: "High emissions (~162-320g CO2/passenger/km). Consider carpool.",
   },
   carpool: {
     icon: "🚗🤝",
@@ -77,7 +78,7 @@ const elements = {
   travelButtons: document.querySelectorAll(".travel-buttons .chip"),
   travelTip: document.getElementById("travel-tip"),
   festivalDates: document.getElementById("festival-dates"),
-  savedBadge: document.getElementById("saved-badge"),
+  planCountNav: document.getElementById("plan-count-nav"),
   savedSort: document.getElementById("saved-sort"),
   exportIcsBtn: document.getElementById("export-ics-btn"),
   exportCsvBtn: document.getElementById("export-csv-btn"),
@@ -85,11 +86,18 @@ const elements = {
   shareAppBtn: document.getElementById("share-app-btn"),
   lowPowerToggle: document.getElementById("low-power-toggle"),
   a2hsBanner: document.getElementById("a2hs-banner"),
+  a2hsText: document.getElementById("a2hs-text"),
   a2hsBtn: document.getElementById("a2hs-btn"),
   a2hsClose: document.getElementById("a2hs-close"),
+  swUpdateBanner: document.getElementById("sw-update-banner"),
+  swRefreshBtn: document.getElementById("sw-refresh-btn"),
+  swRefreshClose: document.getElementById("sw-refresh-close"),
+  scrollTopBtn: document.getElementById("scroll-top-btn"),
 };
 
 let deferredA2HS = null;
+let waitingWorker = null;
+let refreshingByUpdate = false;
 
 function parseCsv(text) {
   const rows = [];
@@ -411,8 +419,7 @@ function renderSessionCard(item, options = {}) {
 }
 
 function updateSavedBadge(count) {
-  elements.savedBadge.textContent = `${count} saved`;
-  elements.savedBadge.classList.toggle("hidden", false);
+  elements.planCountNav.textContent = String(count);
 }
 
 function getSortedSavedItems(savedItems) {
@@ -711,22 +718,77 @@ function initA2HS() {
   const visitCount = Number(localStorage.getItem(VISIT_KEY) || "0") + 1;
   localStorage.setItem(VISIT_KEY, String(visitCount));
 
-  const dismissed = localStorage.getItem(A2HS_DISMISSED_KEY) === "1";
+  const snoozeUntil = Number(localStorage.getItem(A2HS_SNOOZE_UNTIL_KEY) || "0");
+  const snoozed = Date.now() < snoozeUntil;
   const standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
 
-  if (dismissed || standalone) return;
+  if (standalone || snoozed) return;
 
-  const show = () => elements.a2hsBanner.classList.remove("hidden");
+  if (/iphone|ipad|ipod/i.test(navigator.userAgent)) {
+    elements.a2hsBtn.classList.add("hidden");
+    elements.a2hsText.textContent =
+      "On iPhone/iPad: tap Share, then 'Add to Home Screen' for offline access 🌿";
+  } else {
+    elements.a2hsBtn.classList.remove("hidden");
+    elements.a2hsText.textContent = "Add this app to your home screen for offline access 🌿";
+  }
 
-  if (visitCount >= 3) show();
-  setTimeout(() => {
-    if (!dismissed && !standalone) show();
-  }, 30000);
+  const maybeShow = () => {
+    if (deferredA2HS || /iphone|ipad|ipod/i.test(navigator.userAgent)) {
+      elements.a2hsBanner.classList.remove("hidden");
+    }
+  };
+
+  if (visitCount >= 3) maybeShow();
+  setTimeout(maybeShow, 30000);
 }
 
 function initMeta() {
   elements.festivalDates.textContent = CONFIG.festivalDates;
   elements.savedSort.value = getSavedSort();
+}
+
+function maybeShowSwBanner(registration) {
+  const laterUntil = Number(localStorage.getItem(SW_LATER_UNTIL_KEY) || "0");
+  if (Date.now() < laterUntil) return;
+
+  waitingWorker = registration.waiting || waitingWorker;
+  if (waitingWorker) {
+    elements.swUpdateBanner.classList.remove("hidden");
+  }
+}
+
+function trackInstallingWorker(registration) {
+  if (!registration) return;
+  registration.addEventListener("updatefound", () => {
+    const newWorker = registration.installing;
+    if (!newWorker) return;
+    newWorker.addEventListener("statechange", () => {
+      if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
+        waitingWorker = newWorker;
+        maybeShowSwBanner(registration);
+      }
+    });
+  });
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+
+  navigator.serviceWorker
+    .register("./sw.js")
+    .then((registration) => {
+      maybeShowSwBanner(registration);
+      trackInstallingWorker(registration);
+      registration.update().catch(() => {});
+
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (refreshingByUpdate) {
+          window.location.reload();
+        }
+      });
+    })
+    .catch(() => {});
 }
 
 function bindEvents(schedule) {
@@ -817,18 +879,44 @@ function bindEvents(schedule) {
         // Ignore.
       }
       deferredA2HS = null;
+      localStorage.removeItem(A2HS_SNOOZE_UNTIL_KEY);
     }
     elements.a2hsBanner.classList.add("hidden");
   });
 
   elements.a2hsClose.addEventListener("click", () => {
-    localStorage.setItem(A2HS_DISMISSED_KEY, "1");
+    localStorage.setItem(A2HS_SNOOZE_UNTIL_KEY, String(Date.now() + 24 * 60 * 60 * 1000));
     elements.a2hsBanner.classList.add("hidden");
   });
 
   window.addEventListener("beforeinstallprompt", (event) => {
     event.preventDefault();
     deferredA2HS = event;
+    const snoozeUntil = Number(localStorage.getItem(A2HS_SNOOZE_UNTIL_KEY) || "0");
+    if (Date.now() >= snoozeUntil) {
+      elements.a2hsBanner.classList.remove("hidden");
+    }
+  });
+
+  window.addEventListener("scroll", () => {
+    const show = window.scrollY > 280;
+    elements.scrollTopBtn.classList.toggle("hidden", !show);
+  });
+
+  elements.scrollTopBtn.addEventListener("click", () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+
+  elements.swRefreshBtn.addEventListener("click", () => {
+    if (waitingWorker) {
+      refreshingByUpdate = true;
+      waitingWorker.postMessage({ type: "SKIP_WAITING" });
+    }
+  });
+
+  elements.swRefreshClose.addEventListener("click", () => {
+    localStorage.setItem(SW_LATER_UNTIL_KEY, String(Date.now() + 2 * 60 * 60 * 1000));
+    elements.swUpdateBanner.classList.add("hidden");
   });
 }
 
@@ -855,10 +943,7 @@ async function init() {
 
   maybeAskNotifications();
   maybeNotifyUpcoming(schedule);
-
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
-  }
+  registerServiceWorker();
 }
 
 init();

@@ -3,26 +3,41 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="VFF 2026" />
     <title>Vegan Forest Festival 2026</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="manifest" href="manifest.json" />
+    <link rel="apple-touch-icon" href="icon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
   </head>
   <body>
-    <div id="saved-badge" class="saved-badge hidden" aria-live="polite">0 saved</div>
     <div id="a2hs-banner" class="a2hs-banner hidden">
-      <span>Add this app to your home screen for offline access 🌿</span>
+      <span id="a2hs-text">Add this app to your home screen for offline access 🌿</span>
       <button id="a2hs-btn" class="btn small">Add</button>
       <button id="a2hs-close" class="chip">Later</button>
     </div>
+    <div id="sw-update-banner" class="a2hs-banner hidden">
+      <span>New version available. Tap to refresh.</span>
+      <button id="sw-refresh-btn" class="btn small">Refresh</button>
+      <button id="sw-refresh-close" class="chip">Later</button>
+    </div>
+    <nav class="top-nav" aria-label="Primary">
+      <a href="#schedule">Schedule</a>
+      <a href="#my-plan-anchor">My Plan <span id="plan-count-nav" class="plan-count">0</span></a>
+      <a href="#travel">Travel Emissions</a>
+      <a href="#now-card">Now / Next</a>
+      <a href="#schedule-list">Today’s Sessions</a>
+    </nav>
     <header class="hero">
-      <div class="hero-forest" aria-hidden="true"></div>
       <div class="hero-inner">
         <div class="hero-badge">Vegan Forest Festival</div>
         <h1>Guest Schedule & Guide</h1>
-        <p class="hero-sub">Fast, light, and designed for low-connectivity use inside the forest.</p>
+        <div class="hero-forest" aria-hidden="true"></div>
+        <p class="hero-sub">A lightweight guide for Vegan Forest Festival guests.</p>
         <div class="hero-meta">
           <div class="meta-chip" id="festival-dates">Feb 13–15, 2026</div>
           <div class="meta-chip">6+ Venues • 3 Days</div>
@@ -55,7 +70,7 @@
         <div id="schedule-list" class="schedule-list"></div>
         <div id="empty-state" class="empty-state hidden">No sessions match those filters.</div>
 
-        <div class="saved">
+        <div class="saved" id="my-plan-anchor">
           <h3>My Plan</h3>
           <p class="muted">Saved sessions appear here so guests can skim what’s next.</p>
           <div class="saved-tools">
@@ -104,20 +119,6 @@
         </div>
       </section>
 
-      <section id="tester" class="section admin">
-        <div class="section-head">
-          <h2>Tester Notes</h2>
-          <p>This is a testing build. Please explore the schedule, save a few sessions, and try the calendar download.</p>
-        </div>
-        <div class="card">
-          <ul class="list">
-            <li>Use the day tabs to skim Friday, Saturday, Sunday.</li>
-            <li>Save sessions to build your personal plan.</li>
-            <li>Tap “Add to Calendar” for any saved session.</li>
-          </ul>
-        </div>
-      </section>
-
       <section id="developer" class="section">
         <div class="section-head">
           <h2>Developer</h2>
@@ -148,6 +149,7 @@
       <div>Vegan Forest Festival 2026 • Guest Schedule</div>
       <div class="small">Made lightweight for 300+ guests.</div>
     </footer>
+    <button id="scroll-top-btn" class="scroll-top hidden" aria-label="Scroll to top">↑ Top</button>
 
     <script src="app.js"></script>
   </body>
