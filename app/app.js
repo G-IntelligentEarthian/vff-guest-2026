@@ -16,6 +16,8 @@ const POWER_MODE_KEY = "vff_low_power_mode";
 const A2HS_SNOOZE_UNTIL_KEY = "vff_a2hs_snooze_until";
 const VISIT_KEY = "vff_visit_count";
 const SW_DISMISSED_VERSION_KEY = "vff_sw_dismissed_version";
+const A2HS_DISMISSED_KEY = "a2hs-dismissed";
+const UPDATE_DISMISSED_KEY = "update-dismissed";
 
 const travelModes = {
   walk: {
@@ -90,7 +92,7 @@ const elements = {
   a2hsText: document.getElementById("a2hs-text"),
   a2hsBtn: document.getElementById("a2hs-btn"),
   a2hsClose: document.getElementById("a2hs-close"),
-  swUpdateBanner: document.getElementById("sw-update-banner"),
+  swUpdateBanner: document.getElementById("update-banner"),
   swRefreshBtn: document.getElementById("sw-refresh-btn"),
   swRefreshClose: document.getElementById("sw-refresh-close"),
   scrollTopBtn: document.getElementById("scroll-top-btn"),
@@ -106,13 +108,19 @@ const banners = {
 
 function hideBanner(type) {
   const el = banners[type] && banners[type]();
-  if (el) el.classList.add("hidden");
+  if (el) {
+    el.classList.add("hidden");
+    el.style.display = "none";
+  }
 }
 
 function showBanner(type) {
   Object.keys(banners).forEach((key) => hideBanner(key));
   const el = banners[type] && banners[type]();
-  if (el) el.classList.remove("hidden");
+  if (el) {
+    el.classList.remove("hidden");
+    el.style.display = "";
+  }
 }
 
 function parseCsv(text) {
@@ -733,6 +741,11 @@ function initPowerMode() {
 }
 
 function initA2HS() {
+  if (localStorage.getItem(A2HS_DISMISSED_KEY) === "true") {
+    hideBanner("a2hs");
+    return;
+  }
+
   const visitCount = Number(localStorage.getItem(VISIT_KEY) || "0") + 1;
   localStorage.setItem(VISIT_KEY, String(visitCount));
 
@@ -765,6 +778,11 @@ function initMeta() {
 }
 
 function maybeShowSwBanner(registration) {
+  if (sessionStorage.getItem(UPDATE_DISMISSED_KEY) === "true") {
+    hideBanner("sw");
+    return;
+  }
+
   const dismissedVersion = localStorage.getItem(SW_DISMISSED_VERSION_KEY);
   if (dismissedVersion === SW_VERSION) return;
 
@@ -912,14 +930,19 @@ function bindEvents(schedule) {
     hideBanner("a2hs");
   });
 
-  elements.a2hsClose.addEventListener("click", () => {
+  elements.a2hsClose.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    localStorage.setItem(A2HS_DISMISSED_KEY, "true");
     localStorage.setItem(A2HS_SNOOZE_UNTIL_KEY, String(Date.now() + 24 * 60 * 60 * 1000));
+    elements.a2hsBanner.style.display = "none";
     hideBanner("a2hs");
   });
 
   window.addEventListener("beforeinstallprompt", (event) => {
     event.preventDefault();
     deferredA2HS = event;
+    if (localStorage.getItem(A2HS_DISMISSED_KEY) === "true") return;
     const snoozeUntil = Number(localStorage.getItem(A2HS_SNOOZE_UNTIL_KEY) || "0");
     if (Date.now() >= snoozeUntil) {
       showBanner("a2hs");
@@ -936,7 +959,13 @@ function bindEvents(schedule) {
   });
 
   elements.swRefreshBtn.addEventListener("click", forceUpdate);
-  elements.swRefreshClose.addEventListener("click", dismissUpdateBanner);
+  elements.swRefreshClose.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    sessionStorage.setItem(UPDATE_DISMISSED_KEY, "true");
+    elements.swUpdateBanner.style.display = "none";
+    dismissUpdateBanner();
+  });
 }
 
 async function init() {
@@ -965,4 +994,8 @@ async function init() {
   registerServiceWorker();
 }
 
-init();
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
+}

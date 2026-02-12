@@ -399,7 +399,7 @@ select, input[type="search"] {
   box-shadow: var(--shadow);
 }
 
-#sw-update-banner {
+#update-banner {
   position: sticky;
   top: 56px;
   bottom: auto;
