@@ -598,17 +598,19 @@ async function sharePlan() {
 }
 
 async function shareApp() {
-  const url = `${window.location.origin}${window.location.pathname}`;
+  const url = "https://vff-guest-2026.netlify.app/";
+  const shareText =
+    "🌱 Heading to Vegan Forest Festival 2026? Use this lightweight app to track our schedule, see what’s happening 'Now/Next,' and other useful tips. No bulky downloads needed! 📅 Check it out here: https://vff-guest-2026.netlify.app/";
   if (navigator.share) {
     try {
-      await navigator.share({ title: "VFF Guest App", text: "Festival schedule app", url });
+      await navigator.share({ title: "Vegan Forest Festival 2026", text: shareText, url });
       return;
     } catch (err) {
       // Fallback below.
     }
   }
-  await navigator.clipboard.writeText(url);
-  alert("App link copied.");
+  await navigator.clipboard.writeText(shareText);
+  alert("Share message copied.");
 }
 
 function applyPlanFromQuery(schedule) {
