@@ -987,6 +987,19 @@ function bindEvents(schedule) {
     elements.swUpdateBanner.style.display = "none";
     dismissUpdateBanner();
   });
+
+  const myPlanLink = document.querySelector('a[href="#my-plan-anchor"]');
+  if (myPlanLink) {
+    myPlanLink.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const target = document.getElementById("my-plan-anchor");
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+        history.pushState(null, null, "#my-plan-anchor");
+      }
+    });
+  }
 }
 
 async function init() {
