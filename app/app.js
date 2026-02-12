@@ -5,6 +5,7 @@ const CONFIG = {
   localScheduleUrl: "schedule_extracted.csv",
   timezone: "Asia/Kolkata",
 };
+const SW_VERSION = "v4";
 
 const STORAGE_KEY = "vff_saved_sessions";
 const SCHEDULE_CACHE_KEY = "vff_cached_schedule";
@@ -14,7 +15,7 @@ const NOTIFY_SENT_KEY = "vff_notify_sent";
 const POWER_MODE_KEY = "vff_low_power_mode";
 const A2HS_SNOOZE_UNTIL_KEY = "vff_a2hs_snooze_until";
 const VISIT_KEY = "vff_visit_count";
-const SW_LATER_UNTIL_KEY = "vff_sw_later_until";
+const SW_DISMISSED_VERSION_KEY = "vff_sw_dismissed_version";
 
 const travelModes = {
   walk: {
@@ -98,6 +99,21 @@ const elements = {
 let deferredA2HS = null;
 let waitingWorker = null;
 let refreshingByUpdate = false;
+const banners = {
+  a2hs: () => elements.a2hsBanner,
+  sw: () => elements.swUpdateBanner,
+};
+
+function hideBanner(type) {
+  const el = banners[type] && banners[type]();
+  if (el) el.classList.add("hidden");
+}
+
+function showBanner(type) {
+  Object.keys(banners).forEach((key) => hideBanner(key));
+  const el = banners[type] && banners[type]();
+  if (el) el.classList.remove("hidden");
+}
 
 function parseCsv(text) {
   const rows = [];
@@ -723,26 +739,24 @@ function initA2HS() {
   const snoozeUntil = Number(localStorage.getItem(A2HS_SNOOZE_UNTIL_KEY) || "0");
   const snoozed = Date.now() < snoozeUntil;
   const standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
+  const isiOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
 
   if (standalone || snoozed) return;
 
-  if (/iphone|ipad|ipod/i.test(navigator.userAgent)) {
+  if (isiOS) {
     elements.a2hsBtn.classList.add("hidden");
     elements.a2hsText.textContent =
       "On iPhone/iPad: tap Share, then 'Add to Home Screen' for offline access 🌿";
-  } else {
-    elements.a2hsBtn.classList.remove("hidden");
-    elements.a2hsText.textContent = "Add this app to your home screen for offline access 🌿";
+    if (visitCount >= 2) showBanner("a2hs");
+    return;
   }
+  elements.a2hsBtn.classList.remove("hidden");
+  elements.a2hsText.textContent = "Add this app to your home screen for offline access 🌿";
 
-  const maybeShow = () => {
-    if (deferredA2HS || /iphone|ipad|ipod/i.test(navigator.userAgent)) {
-      elements.a2hsBanner.classList.remove("hidden");
-    }
-  };
-
-  if (visitCount >= 3) maybeShow();
-  setTimeout(maybeShow, 30000);
+  if (visitCount >= 3 && deferredA2HS) showBanner("a2hs");
+  setTimeout(() => {
+    if (deferredA2HS) showBanner("a2hs");
+  }, 30000);
 }
 
 function initMeta() {
@@ -751,26 +765,29 @@ function initMeta() {
 }
 
 function maybeShowSwBanner(registration) {
-  const laterUntil = Number(localStorage.getItem(SW_LATER_UNTIL_KEY) || "0");
-  if (Date.now() < laterUntil) return;
+  const dismissedVersion = localStorage.getItem(SW_DISMISSED_VERSION_KEY);
+  if (dismissedVersion === SW_VERSION) return;
 
   waitingWorker = registration.waiting || waitingWorker;
   if (waitingWorker) {
-    elements.swUpdateBanner.classList.remove("hidden");
+    showBanner("sw");
   }
 }
 
-function trackInstallingWorker(registration) {
-  if (!registration) return;
-  registration.addEventListener("updatefound", () => {
-    const newWorker = registration.installing;
-    if (!newWorker) return;
-    newWorker.addEventListener("statechange", () => {
-      if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
-        waitingWorker = newWorker;
-        maybeShowSwBanner(registration);
-      }
-    });
+function dismissUpdateBanner() {
+  localStorage.setItem(SW_DISMISSED_VERSION_KEY, SW_VERSION);
+  hideBanner("sw");
+}
+
+function forceUpdate() {
+  navigator.serviceWorker.getRegistration().then((registration) => {
+    const candidate = (registration && registration.waiting) || waitingWorker;
+    if (candidate) {
+      refreshingByUpdate = true;
+      candidate.postMessage({ type: "SKIP_WAITING" });
+      return;
+    }
+    window.location.reload();
   });
 }
 
@@ -781,7 +798,16 @@ function registerServiceWorker() {
     .register("./sw.js")
     .then((registration) => {
       maybeShowSwBanner(registration);
-      trackInstallingWorker(registration);
+      registration.onupdatefound = () => {
+        const newWorker = registration.installing;
+        if (!newWorker) return;
+        newWorker.onstatechange = () => {
+          if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
+            waitingWorker = registration.waiting || newWorker;
+            maybeShowSwBanner(registration);
+          }
+        };
+      };
       registration.update().catch(() => {});
 
       navigator.serviceWorker.addEventListener("controllerchange", () => {
@@ -883,12 +909,12 @@ function bindEvents(schedule) {
       deferredA2HS = null;
       localStorage.removeItem(A2HS_SNOOZE_UNTIL_KEY);
     }
-    elements.a2hsBanner.classList.add("hidden");
+    hideBanner("a2hs");
   });
 
   elements.a2hsClose.addEventListener("click", () => {
     localStorage.setItem(A2HS_SNOOZE_UNTIL_KEY, String(Date.now() + 24 * 60 * 60 * 1000));
-    elements.a2hsBanner.classList.add("hidden");
+    hideBanner("a2hs");
   });
 
   window.addEventListener("beforeinstallprompt", (event) => {
@@ -896,7 +922,7 @@ function bindEvents(schedule) {
     deferredA2HS = event;
     const snoozeUntil = Number(localStorage.getItem(A2HS_SNOOZE_UNTIL_KEY) || "0");
     if (Date.now() >= snoozeUntil) {
-      elements.a2hsBanner.classList.remove("hidden");
+      showBanner("a2hs");
     }
   });
 
@@ -909,17 +935,8 @@ function bindEvents(schedule) {
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
 
-  elements.swRefreshBtn.addEventListener("click", () => {
-    if (waitingWorker) {
-      refreshingByUpdate = true;
-      waitingWorker.postMessage({ type: "SKIP_WAITING" });
-    }
-  });
-
-  elements.swRefreshClose.addEventListener("click", () => {
-    localStorage.setItem(SW_LATER_UNTIL_KEY, String(Date.now() + 2 * 60 * 60 * 1000));
-    elements.swUpdateBanner.classList.add("hidden");
-  });
+  elements.swRefreshBtn.addEventListener("click", forceUpdate);
+  elements.swRefreshClose.addEventListener("click", dismissUpdateBanner);
 }
 
 async function init() {

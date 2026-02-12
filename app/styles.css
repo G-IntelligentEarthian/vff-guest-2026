@@ -72,20 +72,6 @@ p {
   overflow: hidden;
 }
 
-.hero-forest {
-  height: 52px;
-  border-radius: 12px;
-  margin: 8px 0 18px;
-  background: linear-gradient(90deg, rgba(23, 83, 54, 0.85), rgba(31, 107, 69, 0.8)),
-    repeating-linear-gradient(
-      120deg,
-      rgba(198, 223, 204, 0.16) 0,
-      rgba(198, 223, 204, 0.16) 10px,
-      rgba(255, 255, 255, 0.05) 10px,
-      rgba(255, 255, 255, 0.05) 22px
-    );
-}
-
 .hero::after {
   content: "";
   position: absolute;
@@ -414,7 +400,13 @@ select, input[type="search"] {
 }
 
 #sw-update-banner {
-  bottom: 132px;
+  position: sticky;
+  top: 56px;
+  bottom: auto;
+  left: 0;
+  right: 0;
+  margin: 0 14px;
+  z-index: 45;
 }
 
 .scroll-top {
