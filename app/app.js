@@ -106,20 +106,41 @@ const banners = {
   sw: () => elements.swUpdateBanner,
 };
 
+function syncBannerOffsets() {
+  const topVisible =
+    elements.a2hsBanner.style.display !== "none" &&
+    elements.a2hsBanner.classList.contains("is-visible");
+  const bottomVisible =
+    elements.swUpdateBanner.style.display !== "none" &&
+    elements.swUpdateBanner.classList.contains("is-visible");
+
+  document.body.classList.toggle("has-top-banner", topVisible);
+  document.body.classList.toggle("has-bottom-banner", bottomVisible);
+}
+
 function hideBanner(type) {
   const el = banners[type] && banners[type]();
   if (el) {
-    el.classList.add("hidden");
-    el.style.display = "none";
+    el.classList.remove("is-visible");
+    window.setTimeout(() => {
+      if (!el.classList.contains("is-visible")) {
+        el.classList.add("hidden");
+        el.style.display = "none";
+        syncBannerOffsets();
+      }
+    }, 220);
   }
 }
 
 function showBanner(type) {
-  Object.keys(banners).forEach((key) => hideBanner(key));
   const el = banners[type] && banners[type]();
   if (el) {
     el.classList.remove("hidden");
-    el.style.display = "";
+    el.style.display = "flex";
+    requestAnimationFrame(() => {
+      el.classList.add("is-visible");
+      syncBannerOffsets();
+    });
   }
 }
 
