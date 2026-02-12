@@ -378,16 +378,19 @@ select, input[type="search"] {
 .travel-tip.good {
   background: #eaf9ef;
   border-color: #9ad0aa;
+  color: #123a25;
 }
 
 .travel-tip.mid {
   background: #eef8e8;
   border-color: #b8d79c;
+  color: #1f3a17;
 }
 
 .travel-tip.warn {
   background: #fff1e8;
   border-color: #e6b083;
+  color: #4a2314;
 }
 
 .travel-tip .tip-icon {
@@ -529,6 +532,24 @@ body.low-power .top-nav {
   background: var(--lp-bg-secondary);
   color: var(--lp-text-primary);
   border-color: #3a3a3a;
+}
+
+body.low-power .travel-tip.good {
+  background: #173426;
+  border-color: #2f7a4c;
+  color: #e8ffe7;
+}
+
+body.low-power .travel-tip.mid {
+  background: #2a3418;
+  border-color: #72863a;
+  color: #f3ffe0;
+}
+
+body.low-power .travel-tip.warn {
+  background: #3a2417;
+  border-color: #b0724f;
+  color: #ffe8dc;
 }
 
 body.low-power .filters,
