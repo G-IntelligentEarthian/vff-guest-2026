@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="VFF">
+  <rect width="512" height="512" rx="96" fill="#1f6b45"/>
+  <circle cx="256" cy="224" r="138" fill="#f6c45b"/>
+  <path d="M256 120c16 26 18 54 6 84 24-18 47-20 68-8-14 12-22 26-24 42 24-8 46-6 66 8-34 28-74 34-118 20v126h-24V268c-44 14-84 8-118-20 20-14 42-16 66-8-2-16-10-30-24-42 21-12 44-10 68 8-12-30-10-58 6-84h28z" fill="#174f35"/>
+  <text x="256" y="446" font-family="Arial, sans-serif" font-size="58" text-anchor="middle" fill="#eaf4ef">VFF</text>
+</svg>

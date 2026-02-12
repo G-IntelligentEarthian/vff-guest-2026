@@ -1,19 +1,51 @@
 const CONFIG = {
   festivalDates: "Feb 13–15, 2026",
-  // Replace this with your Google Sheet CSV publish URL.
-  scheduleCsvUrl: "https://docs.google.com/spreadsheets/d/1Yw24ECctBPCMWJejqsEB41XYBx0d8wJGAl2MNSuCyeI/gviz/tq?tqx=out:csv",
-  // Local fallback for testing.
+  scheduleCsvUrl:
+    "https://docs.google.com/spreadsheets/d/1Yw24ECctBPCMWJejqsEB41XYBx0d8wJGAl2MNSuCyeI/gviz/tq?tqx=out:csv",
   localScheduleUrl: "schedule_extracted.csv",
   timezone: "Asia/Kolkata",
 };
 
-const travelTips = {
-  walk: "Best choice. Walk between venues and bring a reusable bottle.",
-  bike: "Low impact. Lock points near entrances help reduce clutter.",
-  bus: "Good impact. Encourage shared pickup points.",
-  train: "Great option for longer travel. Plan last-mile with shuttles.",
-  car: "Higher impact. Try to combine trips and park once for the day.",
-  carpool: "Good compromise. Aim for 3+ passengers per car.",
+const STORAGE_KEY = "vff_saved_sessions";
+const SCHEDULE_CACHE_KEY = "vff_cached_schedule";
+const SORT_KEY = "vff_saved_sort";
+const NOTIFY_ASKED_KEY = "vff_notify_asked";
+const NOTIFY_SENT_KEY = "vff_notify_sent";
+const POWER_MODE_KEY = "vff_low_power_mode";
+const A2HS_DISMISSED_KEY = "vff_a2hs_dismissed";
+const VISIT_KEY = "vff_visit_count";
+
+const travelModes = {
+  walk: {
+    icon: "🚶",
+    className: "good",
+    text: "Excellent! ~0 kg CO2 emitted. Perfect for short distances in Auroville.",
+  },
+  bike: {
+    icon: "🚴",
+    className: "good",
+    text: "Excellent! ~0 kg CO2 emitted. Perfect for short distances in Auroville.",
+  },
+  bus: {
+    icon: "🚌",
+    className: "mid",
+    text: "Low-impact public transport: aim for shared rides from Chennai or Pondicherry. ~40-80 g CO2 per passenger/km.",
+  },
+  train: {
+    icon: "🚆",
+    className: "mid",
+    text: "Low-impact public transport: aim for shared rides from Chennai or Pondicherry. ~40-80 g CO2 per passenger/km.",
+  },
+  car: {
+    icon: "🚗",
+    className: "warn",
+    text: "High emissions (~3240 g CO2 per person for a 20km ride). Consider carpooling instead. Typical range: 162-320 g CO2 per passenger/km.",
+  },
+  carpool: {
+    icon: "🚗🤝",
+    className: "good",
+    text: "Great reduction! Splitting with 3+ people cuts impact by 75%+.",
+  },
 };
 
 const defaultSchedule = [
@@ -26,6 +58,7 @@ const defaultSchedule = [
     title: "Breakfast",
     speaker: "",
     tags: "Food",
+    id: "2026-02-13_0830_main-hut_breakfast",
   },
 ];
 
@@ -44,16 +77,19 @@ const elements = {
   travelButtons: document.querySelectorAll(".travel-buttons .chip"),
   travelTip: document.getElementById("travel-tip"),
   festivalDates: document.getElementById("festival-dates"),
+  savedBadge: document.getElementById("saved-badge"),
+  savedSort: document.getElementById("saved-sort"),
+  exportIcsBtn: document.getElementById("export-ics-btn"),
+  exportCsvBtn: document.getElementById("export-csv-btn"),
+  sharePlanBtn: document.getElementById("share-plan-btn"),
+  shareAppBtn: document.getElementById("share-app-btn"),
+  lowPowerToggle: document.getElementById("low-power-toggle"),
+  a2hsBanner: document.getElementById("a2hs-banner"),
+  a2hsBtn: document.getElementById("a2hs-btn"),
+  a2hsClose: document.getElementById("a2hs-close"),
 };
 
-const STORAGE_KEY = "vff_saved_sessions";
-const SCHEDULE_CACHE_KEY = "vff_cached_schedule";
-
-function initMeta() {
-  if (CONFIG.festivalDates) {
-    elements.festivalDates.textContent = CONFIG.festivalDates;
-  }
-}
+let deferredA2HS = null;
 
 function parseCsv(text) {
   const rows = [];
@@ -81,9 +117,10 @@ function parseCsv(text) {
       continue;
     }
 
-    if (char === "\n" && !inQuotes) {
+    if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && next === "\n") i += 1;
       row.push(current.trim());
-      rows.push(row);
+      if (row.some((cell) => cell.length)) rows.push(row);
       row = [];
       current = "";
       continue;
@@ -113,6 +150,14 @@ function setSavedIds(ids) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
 }
 
+function getSavedSort() {
+  return localStorage.getItem(SORT_KEY) || "chronological";
+}
+
+function setSavedSort(sortValue) {
+  localStorage.setItem(SORT_KEY, sortValue);
+}
+
 function setCachedSchedule(items) {
   try {
     localStorage.setItem(SCHEDULE_CACHE_KEY, JSON.stringify(items));
@@ -130,27 +175,68 @@ function getCachedSchedule() {
   }
 }
 
+function getNowInTimezone() {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: CONFIG.timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+  const parts = formatter.formatToParts(new Date());
+  const get = (type) => parts.find((p) => p.type === type)?.value || "";
+
+  return {
+    date: `${get("year")}-${get("month")}-${get("day")}`,
+    time: `${get("hour")}:${get("minute")}`,
+  };
+}
+
+function toMinutes(time) {
+  const [h, m] = (time || "00:00").split(":").map(Number);
+  return h * 60 + m;
+}
+
+function getSessionEndMinutes(item) {
+  if (item.end_time) return toMinutes(item.end_time);
+  return Math.min(toMinutes(item.start_time) + 60, 24 * 60 - 1);
+}
+
 function normalizeSchedule(data) {
+  const token = (value) =>
+    String(value || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+
   return data
     .filter((item) => item.day && item.start_time && item.title)
     .map((item) => {
       const normalized = {
         ...item,
         day: item.day.trim(),
-        venue: item.venue?.trim() || "",
+        date: (item.date || "").trim(),
+        start_time: (item.start_time || "").trim(),
+        end_time: (item.end_time || "").trim(),
+        venue: (item.venue || "").trim(),
         title: item.title.trim(),
-        speaker: item.speaker?.trim() || "",
-        tags: item.tags?.trim() || "",
+        speaker: (item.speaker || "").trim(),
+        tags: (item.tags || "").trim(),
       };
+
       normalized.id = [
-        normalized.date || "",
-        normalized.start_time,
-        normalized.venue,
-        normalized.title,
-        normalized.speaker,
+        token(normalized.date),
+        token(normalized.start_time),
+        token(normalized.venue),
+        token(normalized.title),
+        token(normalized.speaker),
       ]
-        .join("|")
-        .toLowerCase();
+        .filter(Boolean)
+        .join("_");
+
       return normalized;
     })
     .sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time));
@@ -159,14 +245,16 @@ function normalizeSchedule(data) {
 async function loadSchedule() {
   const tryFetch = async (url) => {
     if (!url) return null;
-    const res = await fetch(url);
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return null;
     const text = await res.text();
     const rows = parseCsv(text);
     if (!rows.length) return null;
+
     const [headerRow, ...dataRows] = rows;
     if (!headerRow || headerRow.length < 3) return null;
-    const headers = headerRow.map((h) => h.toLowerCase().trim());
 
+    const headers = headerRow.map((h) => h.toLowerCase().trim());
     const items = dataRows.map((row) => {
       const item = {};
       headers.forEach((header, index) => {
@@ -187,14 +275,14 @@ async function loadSchedule() {
     const fromSheet = await tryFetch(CONFIG.scheduleCsvUrl);
     if (fromSheet) return fromSheet;
   } catch (err) {
-    // Ignore and fall back to local CSV for testing.
+    // Fallback below.
   }
 
   try {
     const fromLocal = await tryFetch(CONFIG.localScheduleUrl);
     if (fromLocal) return fromLocal;
   } catch (err) {
-    // Ignore and fall back to minimal default.
+    // Fallback below.
   }
 
   const cached = getCachedSchedule();
@@ -207,30 +295,75 @@ function uniqueBy(list, key) {
   return [...new Set(list.map((item) => item[key]).filter(Boolean))];
 }
 
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function getNowNextIds(schedule) {
+  const now = getNowInTimezone();
+  const today = now.date;
+  const minuteNow = toMinutes(now.time);
+
+  const todaySessions = schedule
+    .filter((item) => item.date === today)
+    .map((item) => ({
+      ...item,
+      startMinute: toMinutes(item.start_time),
+      endMinute: getSessionEndMinutes(item),
+    }))
+    .sort((a, b) => a.startMinute - b.startMinute);
+
+  let nowId = "";
+  let nextId = "";
+
+  for (const session of todaySessions) {
+    if (minuteNow >= session.startMinute && minuteNow < session.endMinute) {
+      nowId = session.id;
+      break;
+    }
+  }
+
+  if (nowId) {
+    const current = todaySessions.find((s) => s.id === nowId);
+    const next = todaySessions.find((s) => s.startMinute >= current.endMinute);
+    if (next) nextId = next.id;
+  } else {
+    const next = todaySessions.find((s) => s.startMinute > minuteNow);
+    if (next) nextId = next.id;
+  }
+
+  return { nowId, nextId };
+}
+
 function renderFilters(schedule) {
   const days = uniqueBy(schedule, "day");
   const venues = uniqueBy(schedule, "venue");
 
   elements.dayFilter.innerHTML = [
     `<option value="">All Days</option>`,
-    ...days.map((day) => `<option value="${day}">${day}</option>`),
+    ...days.map((day) => `<option value="${escapeHtml(day)}">${escapeHtml(day)}</option>`),
   ].join("");
 
   elements.venueFilter.innerHTML = [
     `<option value="">All Venues</option>`,
-    ...venues.map((venue) => `<option value="${venue}">${venue}</option>`),
+    ...venues.map(
+      (venue) => `<option value="${escapeHtml(venue)}">${escapeHtml(venue)}</option>`
+    ),
   ].join("");
 
   elements.dayTabs.innerHTML = days
     .map((day, index) => {
       const active = index === 0 ? "active" : "";
-      return `<button class="day-tab ${active}" data-day="${day}">${day}</button>`;
+      return `<button class="day-tab ${active}" data-day="${escapeHtml(day)}">${escapeHtml(day)}</button>`;
     })
     .join("");
 
-  if (days.length) {
-    elements.dayFilter.value = days[0];
-  }
+  if (days.length) elements.dayFilter.value = days[0];
 }
 
 function matchesSearch(item, query) {
@@ -239,11 +372,69 @@ function matchesSearch(item, query) {
   return hay.includes(query);
 }
 
+function renderSessionCard(item, options = {}) {
+  const { isSaved = false, allowCalendar = false, highlight = "" } = options;
+  const flag =
+    highlight === "now"
+      ? '<span class="session-flag now">Happening Now</span>'
+      : highlight === "next"
+      ? '<span class="session-flag next">Up Next</span>'
+      : "";
+
+  return `
+    <div class="session ${highlight}">
+      <div>
+        <div class="session-time">${escapeHtml(item.start_time)}${item.end_time ? "-" + escapeHtml(item.end_time) : ""}</div>
+        <div class="session-meta">${escapeHtml(item.day)}${item.date ? " • " + escapeHtml(item.date) : ""}</div>
+        <div class="session-meta">${escapeHtml(item.venue || "")}</div>
+        ${flag}
+      </div>
+      <div>
+        <h3>${escapeHtml(item.title)}</h3>
+        ${item.speaker ? `<div class="session-meta">${escapeHtml(item.speaker)}</div>` : ""}
+        <div class="session-tags">
+          ${item.tags
+            .split("|")
+            .filter(Boolean)
+            .map((tag) => `<span class="tag">${escapeHtml(tag.trim())}</span>`)
+            .join("")}
+        </div>
+      </div>
+      <div class="session-actions">
+        <button class="save-btn ${isSaved ? "active" : ""}" data-id="${escapeHtml(item.id)}">${
+    isSaved ? "Saved" : "Save"
+  }</button>
+        ${allowCalendar ? `<button class="calendar-btn" data-calendar-id="${escapeHtml(item.id)}">Add to Calendar</button>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function updateSavedBadge(count) {
+  elements.savedBadge.textContent = `${count} saved`;
+  elements.savedBadge.classList.toggle("hidden", false);
+}
+
+function getSortedSavedItems(savedItems) {
+  const sortValue = elements.savedSort.value;
+
+  if (sortValue === "day") {
+    return [...savedItems].sort((a, b) => a.day.localeCompare(b.day) || a.start_time.localeCompare(b.start_time));
+  }
+
+  if (sortValue === "time") {
+    return [...savedItems].sort((a, b) => a.start_time.localeCompare(b.start_time) || a.day.localeCompare(b.day));
+  }
+
+  return [...savedItems].sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time));
+}
+
 function renderSchedule(schedule) {
   const day = elements.dayFilter.value;
   const venue = elements.venueFilter.value;
   const query = elements.searchInput.value.trim().toLowerCase();
-  const savedIds = getSavedIds();
+  const savedIds = new Set(getSavedIds());
+  const nowNext = getNowNextIds(schedule);
 
   const filtered = schedule.filter((item) => {
     if (day && item.day !== day) return false;
@@ -252,100 +443,17 @@ function renderSchedule(schedule) {
   });
 
   elements.scheduleList.innerHTML = filtered
-    .map(
-      (item) => {
-        const isSaved = savedIds.includes(item.id);
-        return `
-      <div class="session">
-        <div>
-          <div class="session-time">${item.start_time}${item.end_time ? "–" + item.end_time : ""}</div>
-          <div class="session-meta">${item.day}${item.date ? " • " + item.date : ""}</div>
-          <div class="session-meta">${item.venue || ""}</div>
-        </div>
-        <div>
-          <h3>${item.title}</h3>
-          ${item.speaker ? `<div class="session-meta">${item.speaker}</div>` : ""}
-          <div class="session-tags">
-            ${item.tags
-              .split("|")
-              .filter(Boolean)
-              .map((tag) => `<span class="tag">${tag.trim()}</span>`)
-              .join("")}
-          </div>
-        </div>
-        <div class="session-actions">
-          <button class="save-btn ${isSaved ? "active" : ""}" data-id="${item.id}">
-            ${isSaved ? "Saved" : "Save"}
-          </button>
-        </div>
-      </div>
-    `;
-      }
-    )
+    .map((item) => {
+      const highlight = item.id === nowNext.nowId ? "now" : item.id === nowNext.nextId ? "next" : "";
+      return renderSessionCard(item, {
+        isSaved: savedIds.has(item.id),
+        allowCalendar: false,
+        highlight,
+      });
+    })
     .join("");
 
   elements.emptyState.classList.toggle("hidden", filtered.length > 0);
-}
-
-function renderSaved(schedule) {
-  const savedIds = getSavedIds();
-  const savedItems = schedule.filter((item) => savedIds.includes(item.id));
-
-  renderSavedNext(savedItems);
-
-  elements.savedList.innerHTML = savedItems
-    .map(
-      (item) => `
-      <div class="session">
-        <div>
-          <div class="session-time">${item.start_time}${item.end_time ? "–" + item.end_time : ""}</div>
-          <div class="session-meta">${item.day}${item.date ? " • " + item.date : ""}</div>
-          <div class="session-meta">${item.venue || ""}</div>
-        </div>
-        <div>
-          <h3>${item.title}</h3>
-          ${item.speaker ? `<div class="session-meta">${item.speaker}</div>` : ""}
-          <div class="session-tags">
-            ${item.tags
-              .split("|")
-              .filter(Boolean)
-              .map((tag) => `<span class="tag">${tag.trim()}</span>`)
-              .join("")}
-          </div>
-        </div>
-        <div class="session-actions">
-          <button class="save-btn active" data-id="${item.id}">Saved</button>
-          <button class="calendar-btn" data-calendar-id="${item.id}">Add to Calendar</button>
-        </div>
-      </div>
-    `
-    )
-    .join("");
-
-  elements.savedEmpty.classList.toggle("hidden", savedItems.length > 0);
-}
-
-function getNowInTimezone() {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: CONFIG.timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-
-  const parts = formatter.formatToParts(new Date());
-  const get = (type) => parts.find((p) => p.type === type)?.value || "";
-  const date = `${get("year")}-${get("month")}-${get("day")}`;
-  const time = `${get("hour")}:${get("minute")}`;
-  return { date, time };
-}
-
-function toMinutes(time) {
-  const [h, m] = time.split(":").map(Number);
-  return h * 60 + m;
 }
 
 function renderSavedNext(savedItems) {
@@ -357,6 +465,7 @@ function renderSavedNext(savedItems) {
   const now = getNowInTimezone();
   const currentMinutes = toMinutes(now.time);
   const todayItems = savedItems.filter((item) => item.date === now.date);
+
   if (!todayItems.length) {
     elements.savedNext.textContent = "No saved sessions for today yet.";
     elements.savedNext.classList.remove("hidden");
@@ -368,78 +477,256 @@ function renderSavedNext(savedItems) {
     .sort((a, b) => a.start - b.start);
 
   const next = upcoming.find((item) => item.start >= currentMinutes) || upcoming[0];
-  elements.savedNext.innerHTML = `Next in your plan: <strong>${next.title}</strong> at ${next.start_time} in ${next.venue}`;
+  elements.savedNext.innerHTML = `Next in your plan: <strong>${escapeHtml(next.title)}</strong> at ${escapeHtml(
+    next.start_time
+  )} in ${escapeHtml(next.venue)}`;
   elements.savedNext.classList.remove("hidden");
 }
 
-function buildIcs(item) {
-  const start = `${item.date.replace(/-/g, "")}T${item.start_time.replace(":", "")}00`;
-  let endTime = item.end_time;
-  if (!endTime) {
-    const hour = Number(item.start_time.slice(0, 2));
-    const nextHour = hour >= 23 ? 23 : hour + 1;
-    const minutes = item.start_time.slice(3);
-    endTime = `${String(nextHour).padStart(2, "0")}:${minutes}`;
-    if (hour >= 23) endTime = "23:59";
-  }
-  const end = `${item.date.replace(/-/g, "")}T${endTime.replace(":", "")}00`;
-  const uid = `${item.id}@vff2026`;
-  const description = item.speaker ? `Speaker: ${item.speaker}` : "";
-  const location = item.venue || "Festival Venue";
+function renderSaved(schedule) {
+  const savedIds = new Set(getSavedIds());
+  const savedItems = getSortedSavedItems(schedule.filter((item) => savedIds.has(item.id)));
 
-  return [
+  renderSavedNext(savedItems);
+  updateSavedBadge(savedItems.length);
+
+  elements.savedList.innerHTML = savedItems
+    .map((item) =>
+      renderSessionCard(item, {
+        isSaved: true,
+        allowCalendar: true,
+      })
+    )
+    .join("");
+
+  elements.savedEmpty.classList.toggle("hidden", savedItems.length > 0);
+}
+
+function toIcsDate(date, time) {
+  return `${date.replace(/-/g, "")}T${time.replace(":", "")}00`;
+}
+
+function buildIcsContent(items) {
+  const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
     "PRODID:-//VFF//Guest Schedule//EN",
     "CALSCALE:GREGORIAN",
-    "BEGIN:VEVENT",
-    `UID:${uid}`,
-    `DTSTART;TZID=${CONFIG.timezone}:${start}`,
-    `DTEND;TZID=${CONFIG.timezone}:${end}`,
-    `SUMMARY:${item.title}`,
-    `DESCRIPTION:${description}`,
-    `LOCATION:${location}`,
-    "END:VEVENT",
-    "END:VCALENDAR",
-  ].join("\n");
+  ];
+
+  items.forEach((item) => {
+    const end = item.end_time || "23:59";
+    lines.push("BEGIN:VEVENT");
+    lines.push(`UID:${item.id}@vff2026`);
+    lines.push(`DTSTART;TZID=${CONFIG.timezone}:${toIcsDate(item.date, item.start_time)}`);
+    lines.push(`DTEND;TZID=${CONFIG.timezone}:${toIcsDate(item.date, end)}`);
+    lines.push(`SUMMARY:${item.title}`);
+    lines.push(`LOCATION:${item.venue || "Festival Venue"}`);
+    lines.push(`DESCRIPTION:${item.speaker ? `Speaker: ${item.speaker}` : "Festival Session"}`);
+    lines.push("END:VEVENT");
+  });
+
+  lines.push("END:VCALENDAR");
+  return lines.join("\n");
 }
 
-function downloadIcs(item) {
-  const ics = buildIcs(item);
-  const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+function downloadFile(content, fileName, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `${item.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.ics`;
+  link.download = fileName;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
 
-function showNowNext(schedule) {
-  const now = getNowInTimezone();
-  const today = now.date;
-  const currentMinutes = toMinutes(now.time);
+function exportSavedAsIcs(schedule) {
+  const savedIds = new Set(getSavedIds());
+  const items = schedule.filter((item) => savedIds.has(item.id));
+  if (!items.length) return;
+  downloadFile(buildIcsContent(items), "vff-my-plan.ics", "text/calendar;charset=utf-8");
+}
 
-  const todaySessions = schedule.filter((item) => item.date === today);
-  if (!todaySessions.length) {
-    elements.nowCard.innerHTML = "No sessions scheduled for today.";
+function exportSavedAsCsv(schedule) {
+  const savedIds = new Set(getSavedIds());
+  const items = schedule.filter((item) => savedIds.has(item.id));
+  if (!items.length) return;
+
+  const header = "session_name,time,venue,day";
+  const rows = items.map((item) => {
+    const time = `${item.start_time}${item.end_time ? `-${item.end_time}` : ""}`;
+    return [item.title, time, item.venue, item.day]
+      .map((value) => `"${String(value).replace(/\"/g, '""')}"`)
+      .join(",");
+  });
+
+  downloadFile([header, ...rows].join("\n"), "vff-my-plan.csv", "text/csv;charset=utf-8");
+}
+
+function getPlanUrl() {
+  const ids = getSavedIds();
+  const params = new URLSearchParams(window.location.search);
+  if (!ids.length) {
+    params.delete("plan");
+  } else {
+    params.set("plan", ids.map((id) => encodeURIComponent(id)).join(","));
+  }
+  return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+}
+
+async function sharePlan() {
+  const url = getPlanUrl();
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: "My VFF Plan", text: "My saved sessions", url });
+      return;
+    } catch (err) {
+      // Fallback below.
+    }
+  }
+  await navigator.clipboard.writeText(url);
+  alert("Plan link copied.");
+}
+
+async function shareApp() {
+  const url = `${window.location.origin}${window.location.pathname}`;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: "VFF Guest App", text: "Festival schedule app", url });
+      return;
+    } catch (err) {
+      // Fallback below.
+    }
+  }
+  await navigator.clipboard.writeText(url);
+  alert("App link copied.");
+}
+
+function applyPlanFromQuery(schedule) {
+  const params = new URLSearchParams(window.location.search);
+  const encoded = params.get("plan");
+  if (!encoded) return;
+
+  const rawIds = encoded.split(",").map((part) => {
+    try {
+      return decodeURIComponent(part);
+    } catch (err) {
+      return part;
+    }
+  });
+
+  const valid = new Set(schedule.map((item) => item.id));
+  const filtered = rawIds.filter((id) => valid.has(id));
+  if (filtered.length) setSavedIds([...new Set(filtered)]);
+}
+
+function maybeAskNotifications() {
+  const hasSaved = getSavedIds().length > 0;
+  const asked = localStorage.getItem(NOTIFY_ASKED_KEY) === "1";
+  if (!hasSaved || asked || !("Notification" in window)) return;
+
+  localStorage.setItem(NOTIFY_ASKED_KEY, "1");
+  Notification.requestPermission();
+}
+
+function maybeNotifyUpcoming(schedule) {
+  if (document.hidden) return;
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+  const savedIds = new Set(getSavedIds());
+  if (!savedIds.size) return;
+
+  const now = getNowInTimezone();
+  const nowMinutes = toMinutes(now.time);
+  const todaySaved = schedule.filter((item) => savedIds.has(item.id) && item.date === now.date);
+
+  const sentMap = (() => {
+    try {
+      return JSON.parse(localStorage.getItem(NOTIFY_SENT_KEY) || "{}");
+    } catch (err) {
+      return {};
+    }
+  })();
+
+  let updated = false;
+  todaySaved.forEach((item) => {
+    const start = toMinutes(item.start_time);
+    const diff = start - nowMinutes;
+    const key = `${item.date}|${item.id}`;
+
+    if (diff <= 10 && diff >= 9 && !sentMap[key]) {
+      new Notification("Session starts in 10 minutes", {
+        body: `${item.title} at ${item.start_time} (${item.venue})`,
+      });
+      sentMap[key] = true;
+      updated = true;
+    }
+  });
+
+  if (updated) localStorage.setItem(NOTIFY_SENT_KEY, JSON.stringify(sentMap));
+}
+
+function updateNowCard(schedule) {
+  const nowNext = getNowNextIds(schedule);
+  const nowItem = schedule.find((item) => item.id === nowNext.nowId);
+  const nextItem = schedule.find((item) => item.id === nowNext.nextId);
+
+  if (nowItem) {
+    elements.nowCard.innerHTML = `Happening now: <strong>${escapeHtml(nowItem.title)}</strong> in ${escapeHtml(
+      nowItem.venue
+    )} · Next: <strong>${nextItem ? escapeHtml(nextItem.title) : "No more today"}</strong>`;
     elements.nowCard.classList.remove("hidden");
     return;
   }
 
-  const upcoming = todaySessions
-    .map((item) => ({
-      ...item,
-      start: toMinutes(item.start_time),
-    }))
-    .sort((a, b) => a.start - b.start);
+  if (nextItem) {
+    elements.nowCard.innerHTML = `Up next: <strong>${escapeHtml(nextItem.title)}</strong> at ${escapeHtml(
+      nextItem.start_time
+    )} in ${escapeHtml(nextItem.venue)}`;
+    elements.nowCard.classList.remove("hidden");
+    return;
+  }
 
-  const next = upcoming.find((item) => item.start >= currentMinutes) || upcoming[0];
-
-  elements.nowCard.innerHTML = `Next up: <strong>${next.title}</strong> at ${next.start_time} in ${next.venue}`;
+  elements.nowCard.innerHTML = "No sessions scheduled for today.";
   elements.nowCard.classList.remove("hidden");
+}
+
+function setPowerModeState(isOn) {
+  document.body.classList.toggle("low-power", isOn);
+  document.body.classList.toggle("dark-mode", isOn);
+  localStorage.setItem(POWER_MODE_KEY, isOn ? "1" : "0");
+  elements.lowPowerToggle.textContent = isOn ? "Low Power Mode On 🌙" : "Low Power Mode 🌙";
+}
+
+function initPowerMode() {
+  const stored = localStorage.getItem(POWER_MODE_KEY);
+  const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const isOn = stored ? stored === "1" : prefersDark;
+  setPowerModeState(isOn);
+}
+
+function initA2HS() {
+  const visitCount = Number(localStorage.getItem(VISIT_KEY) || "0") + 1;
+  localStorage.setItem(VISIT_KEY, String(visitCount));
+
+  const dismissed = localStorage.getItem(A2HS_DISMISSED_KEY) === "1";
+  const standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
+
+  if (dismissed || standalone) return;
+
+  const show = () => elements.a2hsBanner.classList.remove("hidden");
+
+  if (visitCount >= 3) show();
+  setTimeout(() => {
+    if (!dismissed && !standalone) show();
+  }, 30000);
+}
+
+function initMeta() {
+  elements.festivalDates.textContent = CONFIG.festivalDates;
+  elements.savedSort.value = getSavedSort();
 }
 
 function bindEvents(schedule) {
@@ -447,7 +734,7 @@ function bindEvents(schedule) {
     el.addEventListener("input", () => renderSchedule(schedule));
   });
 
-  elements.nowBtn.addEventListener("click", () => showNowNext(schedule));
+  elements.nowBtn.addEventListener("click", () => updateNowCard(schedule));
 
   elements.dayTabs.addEventListener("click", (event) => {
     const button = event.target.closest(".day-tab");
@@ -463,23 +750,33 @@ function bindEvents(schedule) {
   elements.scheduleList.addEventListener("click", (event) => {
     const button = event.target.closest(".save-btn");
     if (!button) return;
-    const id = button.dataset.id;
+
     const saved = new Set(getSavedIds());
-    if (saved.has(id)) {
-      saved.delete(id);
-    } else {
-      saved.add(id);
-    }
+    const id = button.dataset.id;
+
+    if (saved.has(id)) saved.delete(id);
+    else saved.add(id);
+
     setSavedIds([...saved]);
     renderSchedule(schedule);
     renderSaved(schedule);
+    maybeAskNotifications();
   });
 
   elements.savedList.addEventListener("click", (event) => {
-    const button = event.target.closest(".save-btn");
-    if (!button) return;
-    if (button.classList.contains("calendar-btn")) return;
-    const id = button.dataset.id;
+    const removeButton = event.target.closest(".save-btn");
+    const calendarButton = event.target.closest(".calendar-btn");
+
+    if (calendarButton) {
+      const id = calendarButton.dataset.calendarId;
+      const item = schedule.find((s) => s.id === id);
+      if (item) downloadFile(buildIcsContent([item]), `${item.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.ics`, "text/calendar;charset=utf-8");
+      return;
+    }
+
+    if (!removeButton) return;
+
+    const id = removeButton.dataset.id;
     const saved = new Set(getSavedIds());
     saved.delete(id);
     setSavedIds([...saved]);
@@ -487,45 +784,80 @@ function bindEvents(schedule) {
     renderSaved(schedule);
   });
 
-  elements.savedList.addEventListener("click", (event) => {
-    const button = event.target.closest(".calendar-btn");
-    if (!button) return;
-    const id = button.dataset.calendarId;
-    const item = schedule.find((session) => session.id === id);
-    if (item) downloadIcs(item);
+  elements.savedSort.addEventListener("change", () => {
+    setSavedSort(elements.savedSort.value);
+    renderSaved(schedule);
   });
+
+  elements.exportIcsBtn.addEventListener("click", () => exportSavedAsIcs(schedule));
+  elements.exportCsvBtn.addEventListener("click", () => exportSavedAsCsv(schedule));
+  elements.sharePlanBtn.addEventListener("click", sharePlan);
+  elements.shareAppBtn.addEventListener("click", shareApp);
 
   elements.travelButtons.forEach((button) => {
     button.addEventListener("click", () => {
-      const mode = button.dataset.mode;
-      elements.travelTip.textContent = travelTips[mode] || "Choose a mode to see tips.";
+      const mode = travelModes[button.dataset.mode];
+      if (!mode) return;
+      elements.travelTip.className = `travel-tip ${mode.className}`;
+      elements.travelTip.innerHTML = `<span class="tip-icon">${mode.icon}</span>${mode.text}`;
     });
+  });
+
+  elements.lowPowerToggle.addEventListener("click", () => {
+    const enabled = document.body.classList.contains("low-power");
+    setPowerModeState(!enabled);
+  });
+
+  elements.a2hsBtn.addEventListener("click", async () => {
+    if (deferredA2HS) {
+      deferredA2HS.prompt();
+      try {
+        await deferredA2HS.userChoice;
+      } catch (err) {
+        // Ignore.
+      }
+      deferredA2HS = null;
+    }
+    elements.a2hsBanner.classList.add("hidden");
+  });
+
+  elements.a2hsClose.addEventListener("click", () => {
+    localStorage.setItem(A2HS_DISMISSED_KEY, "1");
+    elements.a2hsBanner.classList.add("hidden");
+  });
+
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    deferredA2HS = event;
   });
 }
 
 async function init() {
   initMeta();
+  initPowerMode();
+  initA2HS();
+
   const schedule = await loadSchedule();
+  applyPlanFromQuery(schedule);
+
   renderFilters(schedule);
   renderSchedule(schedule);
   renderSaved(schedule);
+  updateNowCard(schedule);
   bindEvents(schedule);
 
+  setInterval(() => {
+    renderSchedule(schedule);
+    renderSaved(schedule);
+    updateNowCard(schedule);
+    maybeNotifyUpcoming(schedule);
+  }, 60000);
+
+  maybeAskNotifications();
+  maybeNotifyUpcoming(schedule);
+
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker
-      .register("./sw.js")
-      .then((reg) => {
-        reg.addEventListener("updatefound", () => {
-          const worker = reg.installing;
-          if (!worker) return;
-          worker.addEventListener("statechange", () => {
-            if (worker.state === "installed" && navigator.serviceWorker.controller) {
-              window.location.reload();
-            }
-          });
-        });
-      })
-      .catch(() => {});
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
   }
 }
 

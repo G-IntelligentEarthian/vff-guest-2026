@@ -1,4 +1,4 @@
-const CACHE_NAME = "vff-guest-v2";
+const CACHE_NAME = "vff-guest-v3";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -6,6 +6,8 @@ const APP_SHELL = [
   "./app.js",
   "./schedule_extracted.csv",
   "./manifest.json",
+  "./icon.svg",
+  "./_headers",
 ];
 
 self.addEventListener("install", (event) => {
@@ -26,8 +28,30 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   const { request } = event;
+  const url = new URL(request.url);
 
   if (request.method !== "GET") return;
+
+  const isScheduleRequest =
+    url.pathname.endsWith("schedule_extracted.csv") ||
+    url.href.includes("/gviz/tq?tqx=out:csv");
+
+  if (isScheduleRequest) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request)
+          .then((response) => {
+            if (response.ok) {
+              caches.open(CACHE_NAME).then((cache) => cache.put(request, response.clone()));
+            }
+            return response;
+          })
+          .catch(() => caches.match("./schedule_extracted.csv"));
+      })
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(request).then((cached) => {
@@ -40,7 +64,10 @@ self.addEventListener("fetch", (event) => {
           }
           return response;
         })
-        .catch(() => caches.match("./index.html"));
+        .catch(() => {
+          if (request.mode === "navigate") return caches.match("./index.html");
+          return caches.match(request);
+        });
     })
   );
 });

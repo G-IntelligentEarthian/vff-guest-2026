@@ -11,11 +11,18 @@
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
   </head>
   <body>
+    <div id="saved-badge" class="saved-badge hidden" aria-live="polite">0 saved</div>
+    <div id="a2hs-banner" class="a2hs-banner hidden">
+      <span>Add this app to your home screen for offline access 🌿</span>
+      <button id="a2hs-btn" class="btn small">Add</button>
+      <button id="a2hs-close" class="chip">Later</button>
+    </div>
     <header class="hero">
+      <div class="hero-forest" aria-hidden="true"></div>
       <div class="hero-inner">
         <div class="hero-badge">Vegan Forest Festival</div>
         <h1>Guest Schedule & Guide</h1>
-        <p class="hero-sub">Public, lightweight, and updates instantly when you edit the backend sheet.</p>
+        <p class="hero-sub">Fast, light, and designed for low-connectivity use inside the forest.</p>
         <div class="hero-meta">
           <div class="meta-chip" id="festival-dates">Feb 13–15, 2026</div>
           <div class="meta-chip">6+ Venues • 3 Days</div>
@@ -23,6 +30,8 @@
         <div class="hero-actions">
           <a class="btn" href="#schedule">Open Schedule</a>
           <a class="btn ghost" href="#travel">Travel Emissions</a>
+          <button id="share-app-btn" class="btn ghost" type="button">Share This App</button>
+          <button id="low-power-toggle" class="btn ghost" type="button">Low Power Mode 🌙</button>
         </div>
       </div>
     </header>
@@ -49,6 +58,16 @@
         <div class="saved">
           <h3>My Plan</h3>
           <p class="muted">Saved sessions appear here so guests can skim what’s next.</p>
+          <div class="saved-tools">
+            <select id="saved-sort" aria-label="Sort saved sessions">
+              <option value="chronological">Sort: Chronological</option>
+              <option value="day">Sort: Day</option>
+              <option value="time">Sort: Time</option>
+            </select>
+            <button id="export-ics-btn" class="calendar-btn">Export as ICS</button>
+            <button id="export-csv-btn" class="calendar-btn">Export as CSV</button>
+            <button id="share-plan-btn" class="calendar-btn">Share Plan</button>
+          </div>
           <div id="saved-next" class="now-card hidden"></div>
           <div id="saved-list" class="schedule-list"></div>
           <div id="saved-empty" class="empty-state">No saved sessions yet.</div>
@@ -63,23 +82,23 @@
         <div class="travel-grid">
           <div class="card">
             <h3>Quick Check</h3>
-            <p class="muted">Pick your travel mode to see suggested actions.</p>
+            <p class="muted">Pick your travel mode for a quick emissions check.</p>
             <div class="travel-buttons">
-              <button class="chip" data-mode="walk">Walk</button>
-              <button class="chip" data-mode="bike">Bike</button>
-              <button class="chip" data-mode="bus">Bus</button>
-              <button class="chip" data-mode="train">Train</button>
-              <button class="chip" data-mode="car">Car</button>
-              <button class="chip" data-mode="carpool">Carpool</button>
+              <button class="chip" data-mode="walk">🚶 Walk</button>
+              <button class="chip" data-mode="bike">🚴 Cycle</button>
+              <button class="chip" data-mode="bus">🚌 Bus</button>
+              <button class="chip" data-mode="train">🚆 Train</button>
+              <button class="chip" data-mode="car">🚗 Car (Solo)</button>
+              <button class="chip" data-mode="carpool">🚗🤝 Carpool</button>
             </div>
-            <div id="travel-tip" class="travel-tip">Choose a mode to see tips.</div>
+            <div id="travel-tip" class="travel-tip">Tap a mode to view its CO2 impact.</div>
           </div>
           <div class="card">
             <h3>Festival Tips</h3>
             <ul class="list">
-              <li>Bring a refillable bottle and re-use it all weekend.</li>
-              <li>Combine trips between venues; walk when possible.</li>
-              <li>Share rides with at least 2+ guests if driving is required.</li>
+              <li>Bring your own power bank. Charging points are limited.</li>
+              <li>Sadhana is strictly chemical-free: no synthetic soaps, shampoos, or toothpaste.</li>
+              <li>Use biodegradable alternatives and low-impact daily products.</li>
             </ul>
           </div>
         </div>
@@ -102,7 +121,7 @@
       <section id="developer" class="section">
         <div class="section-head">
           <h2>Developer</h2>
-          <p class="muted">Built by a tech enthusiast and not affiliated with Sadhana Forest admins. For questions, clarifications, or suggestions, email me or connect on social.</p>
+          <p class="muted">Built with ❤️ by a tech fan, not the official Sadhana Forest team. I’m always looking to improve, so if you have questions or suggestions, let’s connect on social or over email!</p>
         </div>
         <div class="dev-links">
           <a class="icon-link" href="mailto:susfinity05@gmail.com" aria-label="Email">
