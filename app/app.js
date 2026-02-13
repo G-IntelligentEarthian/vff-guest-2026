@@ -1117,8 +1117,18 @@ function forceUpdate() {
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
 
+  const CLEANUP_KEY = "vff_sw_cleanup_version";
+
   navigator.serviceWorker
-    .register("./sw.js")
+    .getRegistrations()
+    .then(async (registrations) => {
+      // One-time cleanup to remove broken older workers (e.g. addAll install failure).
+      if (localStorage.getItem(CLEANUP_KEY) !== SW_VERSION) {
+        await Promise.all(registrations.map((reg) => reg.unregister()));
+        localStorage.setItem(CLEANUP_KEY, SW_VERSION);
+      }
+      return navigator.serviceWorker.register(`./sw.js?v=${SW_VERSION}`, { updateViaCache: "none" });
+    })
     .then((registration) => {
       maybeShowSwBanner(registration);
 
@@ -1140,7 +1150,9 @@ function registerServiceWorker() {
         if (refreshingByUpdate) window.location.reload();
       });
     })
-    .catch(() => {});
+    .catch((err) => {
+      console.error("[sw] registration failed", err);
+    });
 }
 
 function initChromeNotice() {
@@ -1157,10 +1169,36 @@ function initChromeNotice() {
   }
 }
 
+function bindTopNavLinks() {
+  const myPlanLink = document.querySelector('a[href="#my-plan-anchor"]');
+  if (myPlanLink) {
+    myPlanLink.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const target = document.getElementById("my-plan-anchor");
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+        history.pushState(null, null, "#my-plan-anchor");
+      }
+    });
+  }
+
+  document.querySelectorAll(".top-nav a[href^='#']").forEach((link) => {
+    if (link.getAttribute("href") === "#my-plan-anchor") return;
+    link.addEventListener("click", (event) => {
+      const hash = link.getAttribute("href");
+      const target = document.querySelector(hash);
+      if (!target) return;
+      event.preventDefault();
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      history.replaceState(null, "", hash);
+    });
+  });
+}
+
 function bindEvents() {
   if (!elements.dayFilter || !elements.venueFilter || !elements.searchInput || !elements.scheduleList || !elements.savedList) {
     console.error("[ui] Required filter/list elements missing. Check index.html ids.");
-    return;
   }
   [elements.dayFilter, elements.venueFilter].forEach((el) => {
     el.addEventListener("input", () => {
@@ -1433,30 +1471,6 @@ function bindEvents() {
     });
   }
 
-  const myPlanLink = document.querySelector('a[href="#my-plan-anchor"]');
-  if (myPlanLink) {
-    myPlanLink.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const target = document.getElementById("my-plan-anchor");
-      if (target) {
-        target.scrollIntoView({ behavior: "smooth", block: "start" });
-        history.pushState(null, null, "#my-plan-anchor");
-      }
-    });
-  }
-
-  document.querySelectorAll(".top-nav a[href^='#']").forEach((link) => {
-    if (link.getAttribute("href") === "#my-plan-anchor") return;
-    link.addEventListener("click", (event) => {
-      const hash = link.getAttribute("href");
-      const target = document.querySelector(hash);
-      if (!target) return;
-      event.preventDefault();
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
-      history.replaceState(null, "", hash);
-    });
-  });
 }
 
 function initMeta() {
@@ -1493,6 +1507,7 @@ async function init() {
   renderSaved();
   updateNowCard();
 
+  bindTopNavLinks();
   bindEvents();
 
   setInterval(() => {
