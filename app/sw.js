@@ -1,4 +1,4 @@
-const CACHE_NAME = "vff-cache-v6";
+const CACHE_NAME = "vff-cache-v7";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -49,7 +49,8 @@ self.addEventListener("fetch", (event) => {
       fetch(request)
         .then((response) => {
           if (response.ok) {
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, response.clone()));
+            const responseClone = response.clone();
+            event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone)));
           }
           return response;
         })
@@ -70,13 +71,14 @@ self.addEventListener("fetch", (event) => {
         return (
           cached ||
           fetch(request)
-          .then((response) => {
-            if (response.ok) {
-              caches.open(CACHE_NAME).then((cache) => cache.put(request, response.clone()));
-            }
-            return response;
-          })
-          .catch(() => caches.match("./schedule.json") || caches.match("./schedule_extracted.csv"))
+            .then((response) => {
+              if (response.ok) {
+                const responseClone = response.clone();
+                event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone)));
+              }
+              return response;
+            })
+            .catch(() => caches.match("./schedule.json") || caches.match("./schedule_extracted.csv"))
         );
       })
     );
@@ -90,7 +92,8 @@ self.addEventListener("fetch", (event) => {
         fetch(request)
           .then((response) => {
             if (response.ok) {
-              caches.open(CACHE_NAME).then((cache) => cache.put(request, response.clone()));
+              const responseClone = response.clone();
+              event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone)));
             }
             return response;
           })

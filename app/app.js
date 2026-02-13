@@ -7,7 +7,7 @@ const CONFIG = {
   timezone: "Asia/Kolkata",
 };
 
-const SW_VERSION = "v6";
+const SW_VERSION = "v7";
 const EXPECTED_SESSION_COUNT = 143;
 const STORAGE_KEY = "vff_saved_sessions";
 const SORT_KEY = "vff_saved_sort";
@@ -1170,29 +1170,19 @@ function initChromeNotice() {
 }
 
 function bindTopNavLinks() {
-  const myPlanLink = document.querySelector('a[href="#my-plan-anchor"]');
-  if (myPlanLink) {
-    myPlanLink.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const target = document.getElementById("my-plan-anchor");
-      if (target) {
-        target.scrollIntoView({ behavior: "smooth", block: "start" });
-        history.pushState(null, null, "#my-plan-anchor");
-      }
-    });
-  }
+  const topNav = document.querySelector(".top-nav");
+  if (!topNav) return;
 
-  document.querySelectorAll(".top-nav a[href^='#']").forEach((link) => {
-    if (link.getAttribute("href") === "#my-plan-anchor") return;
-    link.addEventListener("click", (event) => {
-      const hash = link.getAttribute("href");
-      const target = document.querySelector(hash);
-      if (!target) return;
-      event.preventDefault();
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
-      history.replaceState(null, "", hash);
-    });
+  topNav.addEventListener("click", (event) => {
+    const link = event.target.closest("a[href^='#']");
+    if (!link) return;
+    const hash = link.getAttribute("href");
+    const target = document.querySelector(hash);
+    if (!target) return;
+    event.preventDefault();
+    event.stopPropagation();
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    history.replaceState(null, "", hash);
   });
 }
 
