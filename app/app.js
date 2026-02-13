@@ -5,11 +5,11 @@ const CONFIG = {
   localScheduleUrl: "schedule_extracted.csv",
   timezone: "Asia/Kolkata",
 };
-const SW_VERSION = "v4";
 
+const SW_VERSION = "v4";
 const STORAGE_KEY = "vff_saved_sessions";
-const SCHEDULE_CACHE_KEY = "vff_cached_schedule";
 const SORT_KEY = "vff_saved_sort";
+const TAGS_KEY = "vff-selected-tags";
 const NOTIFY_ASKED_KEY = "vff_notify_asked";
 const NOTIFY_SENT_KEY = "vff_notify_sent";
 const POWER_MODE_KEY = "vff_low_power_mode";
@@ -18,6 +18,35 @@ const VISIT_KEY = "vff_visit_count";
 const SW_DISMISSED_VERSION_KEY = "vff_sw_dismissed_version";
 const A2HS_DISMISSED_KEY = "a2hs-dismissed";
 const UPDATE_DISMISSED_KEY = "update-dismissed";
+const CHROME_NOTICE_DISMISSED_KEY = "chrome-notice-dismissed";
+
+const TAG_ORDER = [
+  "food-demo",
+  "workshop",
+  "movement",
+  "dance",
+  "yoga",
+  "fitness",
+  "talk",
+  "music",
+  "arts",
+  "meditation",
+  "meetup",
+  "kids",
+  "community",
+  "meal",
+  "wellness",
+  "activism",
+  "nature",
+];
+
+const QUICK_FILTERS = {
+  wellness: ["wellness", "yoga", "meditation"],
+  music: ["music", "dance"],
+  talks: ["talk", "workshop"],
+  family: ["kids", "community"],
+  nature: ["nature", "activism"],
+};
 
 const travelModes = {
   walk: {
@@ -52,20 +81,6 @@ const travelModes = {
   },
 };
 
-const defaultSchedule = [
-  {
-    day: "Friday",
-    date: "2026-02-13",
-    start_time: "08:30",
-    end_time: "09:30",
-    venue: "Main Hut",
-    title: "Breakfast",
-    speaker: "",
-    tags: "Food",
-    id: "2026-02-13_0830_main-hut_breakfast",
-  },
-];
-
 const elements = {
   dayTabs: document.getElementById("day-tabs"),
   dayFilter: document.getElementById("day-filter"),
@@ -96,52 +111,74 @@ const elements = {
   swRefreshBtn: document.getElementById("sw-refresh-btn"),
   swRefreshClose: document.getElementById("sw-refresh-close"),
   scrollTopBtn: document.getElementById("scroll-top-btn"),
+  tagFilters: document.getElementById("tag-filters"),
+  activeFilterCount: document.getElementById("active-filter-count"),
+  activeTags: document.getElementById("active-tags"),
+  filterResults: document.getElementById("filter-results"),
+  filterAnnouncer: document.getElementById("filter-announcer"),
+  filterToggleBtn: document.getElementById("filter-toggle-btn"),
+  tagFilterPanel: document.getElementById("tag-filter-panel"),
+  clearFiltersBtn: document.getElementById("clear-filters-btn"),
+  recommendations: document.getElementById("recommendations"),
+  recommendationList: document.getElementById("recommendation-list"),
+  chromeNotice: document.getElementById("chrome-notice"),
+  chromeNoticeClose: document.getElementById("chrome-notice-close"),
+};
+
+const state = {
+  allSessions: [],
+  selectedTags: new Set(),
 };
 
 let deferredA2HS = null;
 let waitingWorker = null;
 let refreshingByUpdate = false;
+
 const banners = {
   a2hs: () => elements.a2hsBanner,
   sw: () => elements.swUpdateBanner,
 };
 
-function syncBannerOffsets() {
-  const topVisible =
-    elements.a2hsBanner.style.display !== "none" &&
-    elements.a2hsBanner.classList.contains("is-visible");
-  const bottomVisible =
-    elements.swUpdateBanner.style.display !== "none" &&
-    elements.swUpdateBanner.classList.contains("is-visible");
-
-  document.body.classList.toggle("has-top-banner", topVisible);
-  document.body.classList.toggle("has-bottom-banner", bottomVisible);
-}
-
-function hideBanner(type) {
-  const el = banners[type] && banners[type]();
-  if (el) {
-    el.classList.remove("is-visible");
-    window.setTimeout(() => {
-      if (!el.classList.contains("is-visible")) {
-        el.classList.add("hidden");
-        el.style.display = "none";
-        syncBannerOffsets();
-      }
-    }, 220);
+function getSavedIds() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+  } catch (err) {
+    return [];
   }
 }
 
-function showBanner(type) {
-  const el = banners[type] && banners[type]();
-  if (el) {
-    el.classList.remove("hidden");
-    el.style.display = "flex";
-    requestAnimationFrame(() => {
-      el.classList.add("is-visible");
-      syncBannerOffsets();
-    });
+function setSavedIds(ids) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
+}
+
+function getSavedSort() {
+  return localStorage.getItem(SORT_KEY) || "chronological";
+}
+
+function setSavedSort(value) {
+  localStorage.setItem(SORT_KEY, value);
+}
+
+function saveSelectedTags() {
+  localStorage.setItem(TAGS_KEY, JSON.stringify([...state.selectedTags]));
+}
+
+function loadSelectedTags() {
+  try {
+    const value = JSON.parse(localStorage.getItem(TAGS_KEY) || "[]");
+    state.selectedTags = new Set(value);
+  } catch (err) {
+    state.selectedTags = new Set();
   }
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function parseCsv(text) {
@@ -190,42 +227,128 @@ function parseCsv(text) {
   return rows;
 }
 
-function getSavedIds() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch (err) {
-    return [];
+function normalizeHeader(header) {
+  return header.toLowerCase().trim().replace(/\s+/g, "_");
+}
+
+function normalizeTag(tag) {
+  return String(tag || "")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeSchedule(rows) {
+  const dayToDate = {
+    friday: "2026-02-13",
+    saturday: "2026-02-14",
+    sunday: "2026-02-15",
+  };
+  const errors = [];
+  const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+  const sessions = rows
+    .map((item, index) => {
+      const day = (item.day || "").trim();
+      const start_time = (item.start_time || "").trim();
+      const venue = (item.venue || "").trim();
+      const title = (item.title || "").trim();
+      const speaker = (item.speaker || "").trim();
+      const end_time = (item.end_time || "").trim();
+      const tag1 = normalizeTag(item.tag1 || item.tag_1);
+      const tag2 = normalizeTag(item.tag2 || item.tag_2);
+      const date = (item.date || "").trim() || dayToDate[day.toLowerCase()] || "";
+
+      if (!day || !start_time || !venue || !title) {
+        errors.push(`Row ${index + 2}: required field missing.`);
+        return null;
+      }
+
+      if (!timeRegex.test(start_time)) {
+        errors.push(`Row ${index + 2}: invalid time '${start_time}'.`);
+        return null;
+      }
+
+      if (end_time && !timeRegex.test(end_time)) {
+        errors.push(`Row ${index + 2}: invalid end time '${end_time}'.`);
+        return null;
+      }
+
+      const id = [date, start_time, venue, title, speaker]
+        .map((v) =>
+          String(v || "")
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "")
+        )
+        .filter(Boolean)
+        .join("_");
+
+      return {
+        day,
+        date,
+        start_time,
+        end_time,
+        venue,
+        title,
+        speaker,
+        tag1: tag1 || "",
+        tag2: tag2 || "",
+        tags: [tag1, tag2].filter(Boolean).join("|"),
+        id,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time));
+
+  if (errors.length) {
+    console.warn("[schedule] validation errors:", errors);
   }
-}
 
-function setSavedIds(ids) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
-}
-
-function getSavedSort() {
-  return localStorage.getItem(SORT_KEY) || "chronological";
-}
-
-function setSavedSort(sortValue) {
-  localStorage.setItem(SORT_KEY, sortValue);
-}
-
-function setCachedSchedule(items) {
-  try {
-    localStorage.setItem(SCHEDULE_CACHE_KEY, JSON.stringify(items));
-  } catch (err) {
-    // Ignore storage errors.
+  if (sessions.length !== 144) {
+    console.warn(`[schedule] imported ${sessions.length} sessions (expected 144).`);
   }
+
+  return sessions;
 }
 
-function getCachedSchedule() {
+async function loadSchedule() {
+  const loadUrl = async (url) => {
+    if (!url) return null;
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) return null;
+    const text = await response.text();
+    const parsed = parseCsv(text);
+    if (!parsed.length) return null;
+
+    const [headers, ...records] = parsed;
+    const normalizedHeaders = headers.map(normalizeHeader);
+    const rows = records.map((record) => {
+      const row = {};
+      normalizedHeaders.forEach((header, index) => {
+        row[header] = record[index] || "";
+      });
+      return row;
+    });
+
+    const sessions = normalizeSchedule(rows);
+    return sessions.length ? sessions : null;
+  };
+
   try {
-    const raw = localStorage.getItem(SCHEDULE_CACHE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    const local = await loadUrl(CONFIG.localScheduleUrl);
+    if (local) return local;
   } catch (err) {
-    return null;
+    console.warn("[schedule] local load failed", err);
   }
+
+  try {
+    const remote = await loadUrl(CONFIG.scheduleCsvUrl);
+    if (remote) return remote;
+  } catch (err) {
+    console.warn("[schedule] remote load failed", err);
+  }
+
+  return [];
 }
 
 function getNowInTimezone() {
@@ -249,7 +372,7 @@ function getNowInTimezone() {
 }
 
 function toMinutes(time) {
-  const [h, m] = (time || "00:00").split(":").map(Number);
+  const [h, m] = String(time || "00:00").split(":").map(Number);
   return h * 60 + m;
 }
 
@@ -258,160 +381,12 @@ function getSessionEndMinutes(item) {
   return Math.min(toMinutes(item.start_time) + 60, 24 * 60 - 1);
 }
 
-function normalizeSchedule(data) {
-  const token = (value) =>
-    String(value || "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-
-  const dayToDate = {
-    friday: "2026-02-13",
-    saturday: "2026-02-14",
-    sunday: "2026-02-15",
-  };
-  const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
-  const errors = [];
-
-  const normalized = data
-    .map((item, index) => {
-      const day = (item.day || "").trim();
-      const start_time = (item.start_time || "").trim();
-      const venue = (item.venue || "").trim();
-      const title = (item.title || "").trim();
-      const speaker = (item.speaker || "").trim();
-      const tag1 = (item.tag1 || "").trim().toLowerCase();
-      const tag2 = (item.tag2 || "").trim().toLowerCase();
-      const date = (item.date || "").trim() || dayToDate[day.toLowerCase()] || "";
-      const end_time = (item.end_time || "").trim();
-
-      if (!day || !start_time || !venue || !title) {
-        errors.push(`Row ${index + 2}: missing required field(s).`);
-        return null;
-      }
-      if (!timeRegex.test(start_time)) {
-        errors.push(`Row ${index + 2}: invalid start_time '${start_time}'.`);
-        return null;
-      }
-      if (end_time && !timeRegex.test(end_time)) {
-        errors.push(`Row ${index + 2}: invalid end_time '${end_time}'.`);
-        return null;
-      }
-
-      const session = {
-        day,
-        date,
-        start_time,
-        end_time,
-        venue,
-        title,
-        speaker,
-        tag1: tag1 || "",
-        tag2: tag2 || "",
-        tags: [tag1, tag2].filter(Boolean).join("|"),
-      };
-
-      session.id = [
-        token(session.date),
-        token(session.start_time),
-        token(session.venue),
-        token(session.title),
-        token(session.speaker),
-      ]
-        .filter(Boolean)
-        .join("_");
-
-      return session;
-    })
-    .filter(Boolean)
-    .sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time));
-
-  if (errors.length) {
-    console.warn("[schedule] validation errors:", errors);
-  }
-
-  return normalized;
-}
-
-async function loadSchedule() {
-  const tryFetch = async (url) => {
-    if (!url) return null;
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) return null;
-    const text = await res.text();
-    const rows = parseCsv(text);
-    if (!rows.length) return null;
-
-    const [headerRow, ...dataRows] = rows;
-    if (!headerRow || headerRow.length < 3) return null;
-
-    const headers = headerRow.map((h) =>
-      h
-        .toLowerCase()
-        .trim()
-        .replace(/\s+/g, "_")
-    );
-    const items = dataRows.map((row) => {
-      const item = {};
-      headers.forEach((header, index) => {
-        item[header] = row[index] || "";
-      });
-      item.tag1 = item.tag1 || item.tag_1 || "";
-      item.tag2 = item.tag2 || item.tag_2 || "";
-      return item;
-    });
-
-    const normalized = normalizeSchedule(items);
-    if (normalized.length) {
-      setCachedSchedule(normalized);
-      if (normalized.length !== 144) {
-        console.warn(`[schedule] imported ${normalized.length} sessions (expected 144).`);
-      }
-      return normalized;
-    }
-    return null;
-  };
-
-  try {
-    const fromSheet = await tryFetch(CONFIG.scheduleCsvUrl);
-    if (fromSheet) return fromSheet;
-  } catch (err) {
-    // Fallback below.
-  }
-
-  try {
-    const fromLocal = await tryFetch(CONFIG.localScheduleUrl);
-    if (fromLocal) return fromLocal;
-  } catch (err) {
-    // Fallback below.
-  }
-
-  const cached = getCachedSchedule();
-  if (cached?.length) return cached;
-
-  return defaultSchedule;
-}
-
-function uniqueBy(list, key) {
-  return [...new Set(list.map((item) => item[key]).filter(Boolean))];
-}
-
-function escapeHtml(text) {
-  return String(text)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
-function getNowNextIds(schedule) {
+function getNowNextIds(sessions) {
   const now = getNowInTimezone();
-  const today = now.date;
   const minuteNow = toMinutes(now.time);
 
-  const todaySessions = schedule
-    .filter((item) => item.date === today)
+  const todaySessions = sessions
+    .filter((item) => item.date === now.date)
     .map((item) => ({
       ...item,
       startMinute: toMinutes(item.start_time),
@@ -441,9 +416,155 @@ function getNowNextIds(schedule) {
   return { nowId, nextId };
 }
 
-function renderFilters(schedule) {
-  const days = uniqueBy(schedule, "day");
-  const venues = uniqueBy(schedule, "venue");
+function matchesSearch(item, query) {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  const hay = [item.title, item.speaker, item.venue, item.tag1, item.tag2].join(" ").toLowerCase();
+  return hay.includes(q);
+}
+
+function getActiveDay() {
+  return elements.dayFilter.value;
+}
+
+function getActiveVenue() {
+  return elements.venueFilter.value;
+}
+
+function getActiveSearch() {
+  return elements.searchInput.value.trim().toLowerCase();
+}
+
+function getFilteredSessions({ ignoreTags = false } = {}) {
+  const day = getActiveDay();
+  const venue = getActiveVenue();
+  const query = getActiveSearch();
+
+  return state.allSessions.filter((item) => {
+    if (day && item.day !== day) return false;
+    if (venue && item.venue !== venue) return false;
+    if (!matchesSearch(item, query)) return false;
+
+    if (!ignoreTags && state.selectedTags.size) {
+      const tags = [item.tag1, item.tag2].filter(Boolean);
+      return tags.some((tag) => state.selectedTags.has(tag));
+    }
+
+    return true;
+  });
+}
+
+function getAllTags() {
+  const set = new Set();
+  state.allSessions.forEach((session) => {
+    if (session.tag1) set.add(session.tag1);
+    if (session.tag2) set.add(session.tag2);
+  });
+
+  const list = [...set];
+  list.sort((a, b) => {
+    const ia = TAG_ORDER.indexOf(a);
+    const ib = TAG_ORDER.indexOf(b);
+    if (ia === -1 && ib === -1) return a.localeCompare(b);
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
+
+  return list;
+}
+
+function getTagClass(tag) {
+  if (["food-demo", "meal"].includes(tag)) return "tag-food";
+  if (["music", "dance", "arts"].includes(tag)) return "tag-arts";
+  if (["wellness", "meditation", "yoga", "fitness", "movement"].includes(tag)) return "tag-wellness";
+  if (["talk", "workshop"].includes(tag)) return "tag-talk";
+  if (["kids"].includes(tag)) return "tag-kids";
+  if (["activism"].includes(tag)) return "tag-activism";
+  if (["nature"].includes(tag)) return "tag-nature";
+  return "";
+}
+
+function renderTagFilters() {
+  const tags = getAllTags();
+  const base = getFilteredSessions({ ignoreTags: true });
+  const tagCounts = {};
+
+  tags.forEach((tag) => {
+    tagCounts[tag] = base.filter((session) => session.tag1 === tag || session.tag2 === tag).length;
+  });
+
+  elements.tagFilters.innerHTML = tags
+    .map((tag) => {
+      const active = state.selectedTags.has(tag);
+      const count = tagCounts[tag] || 0;
+      const disabled = count === 0 && (getActiveDay() || getActiveVenue() || getActiveSearch());
+      return `<button class="tag-filter-btn ${active ? "active" : ""}" data-tag="${escapeHtml(tag)}" aria-label="Filter by ${escapeHtml(
+        tag
+      )} category" aria-pressed="${active ? "true" : "false"}" ${disabled ? "disabled" : ""}>${escapeHtml(
+        tag
+      )} (${count})</button>`;
+    })
+    .join("");
+
+  elements.activeFilterCount.textContent = String(state.selectedTags.size);
+  renderActiveTagChips();
+}
+
+function renderActiveTagChips() {
+  const tags = [...state.selectedTags];
+  elements.activeTags.innerHTML = tags
+    .map((tag) => `<button class="active-chip" data-remove-tag="${escapeHtml(tag)}">${escapeHtml(tag)} ×</button>`)
+    .join("");
+}
+
+function updateFilterResultLabel(filteredCount) {
+  const total = state.allSessions.length;
+  elements.filterResults.textContent = `Showing ${filteredCount} of ${total} sessions`;
+}
+
+function syncFilterUrl() {
+  const url = new URL(window.location.href);
+  const day = getActiveDay();
+  const venue = getActiveVenue();
+  const tags = [...state.selectedTags];
+
+  if (day) url.searchParams.set("day", day);
+  else url.searchParams.delete("day");
+
+  if (venue) url.searchParams.set("venue", venue);
+  else url.searchParams.delete("venue");
+
+  if (tags.length) url.searchParams.set("tags", tags.join(","));
+  else url.searchParams.delete("tags");
+
+  history.replaceState(null, "", `${url.pathname}?${url.searchParams.toString()}${url.hash}`);
+}
+
+function applyUrlFilters() {
+  const params = new URLSearchParams(window.location.search);
+  const day = params.get("day") || "";
+  const venue = params.get("venue") || "";
+  const tags = (params.get("tags") || "")
+    .split(",")
+    .map((t) => normalizeTag(t))
+    .filter(Boolean);
+
+  if (day) elements.dayFilter.value = day;
+  if (venue) elements.venueFilter.value = venue;
+
+  if (tags.length) {
+    state.selectedTags = new Set(tags);
+  }
+}
+
+function announce(text) {
+  elements.filterAnnouncer.textContent = text;
+}
+
+function renderFilters() {
+  const days = [...new Set(state.allSessions.map((s) => s.day).filter(Boolean))];
+  const venues = [...new Set(state.allSessions.map((s) => s.venue).filter(Boolean))];
 
   elements.dayFilter.innerHTML = [
     `<option value="">All Days</option>`,
@@ -452,25 +573,23 @@ function renderFilters(schedule) {
 
   elements.venueFilter.innerHTML = [
     `<option value="">All Venues</option>`,
-    ...venues.map(
-      (venue) => `<option value="${escapeHtml(venue)}">${escapeHtml(venue)}</option>`
-    ),
+    ...venues.map((venue) => `<option value="${escapeHtml(venue)}">${escapeHtml(venue)}</option>`),
   ].join("");
 
   elements.dayTabs.innerHTML = days
-    .map((day, index) => {
-      const active = index === 0 ? "active" : "";
-      return `<button class="day-tab ${active}" data-day="${escapeHtml(day)}">${escapeHtml(day)}</button>`;
-    })
+    .map(
+      (day) => `<button class="day-tab ${elements.dayFilter.value === day ? "active" : ""}" data-day="${escapeHtml(day)}">${
+        escapeHtml(day)
+      }</button>`
+    )
     .join("");
-
-  if (days.length) elements.dayFilter.value = days[0];
 }
 
-function matchesSearch(item, query) {
-  if (!query) return true;
-  const hay = [item.title, item.speaker, item.tags, item.venue].join(" ").toLowerCase();
-  return hay.includes(query);
+function renderSessionTags(item) {
+  const tags = [item.tag1, item.tag2].filter(Boolean);
+  return tags
+    .map((tag) => `<button class="tag clickable ${getTagClass(tag)}" data-inline-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`)
+    .join("");
 }
 
 function renderSessionCard(item, options = {}) {
@@ -485,26 +604,18 @@ function renderSessionCard(item, options = {}) {
   return `
     <div class="session ${highlight}">
       <div>
-        <div class="session-time">${escapeHtml(item.start_time)}${item.end_time ? "-" + escapeHtml(item.end_time) : ""}</div>
-        <div class="session-meta">${escapeHtml(item.day)}${item.date ? " • " + escapeHtml(item.date) : ""}</div>
+        <div class="session-time">${escapeHtml(item.start_time)}${item.end_time ? `-${escapeHtml(item.end_time)}` : ""}</div>
+        <div class="session-meta">${escapeHtml(item.day)}${item.date ? ` • ${escapeHtml(item.date)}` : ""}</div>
         <div class="session-meta">${escapeHtml(item.venue || "")}</div>
         ${flag}
       </div>
       <div>
         <h3>${escapeHtml(item.title)}</h3>
         ${item.speaker ? `<div class="session-meta">${escapeHtml(item.speaker)}</div>` : ""}
-        <div class="session-tags">
-          ${item.tags
-            .split("|")
-            .filter(Boolean)
-            .map((tag) => `<span class="tag">${escapeHtml(tag.trim())}</span>`)
-            .join("")}
-        </div>
+        <div class="session-tags">${renderSessionTags(item)}</div>
       </div>
       <div class="session-actions">
-        <button class="save-btn ${isSaved ? "active" : ""}" data-id="${escapeHtml(item.id)}">${
-    isSaved ? "Saved" : "Save"
-  }</button>
+        <button class="save-btn ${isSaved ? "active" : ""}" data-id="${escapeHtml(item.id)}">${isSaved ? "Saved" : "Save"}</button>
         ${allowCalendar ? `<button class="calendar-btn" data-calendar-id="${escapeHtml(item.id)}">Add to Calendar</button>` : ""}
       </div>
     </div>
@@ -529,18 +640,10 @@ function getSortedSavedItems(savedItems) {
   return [...savedItems].sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time));
 }
 
-function renderSchedule(schedule) {
-  const day = elements.dayFilter.value;
-  const venue = elements.venueFilter.value;
-  const query = elements.searchInput.value.trim().toLowerCase();
+function renderSchedule() {
   const savedIds = new Set(getSavedIds());
-  const nowNext = getNowNextIds(schedule);
-
-  const filtered = schedule.filter((item) => {
-    if (day && item.day !== day) return false;
-    if (venue && item.venue !== venue) return false;
-    return matchesSearch(item, query);
-  });
+  const nowNext = getNowNextIds(state.allSessions);
+  const filtered = getFilteredSessions();
 
   elements.scheduleList.innerHTML = filtered
     .map((item) => {
@@ -554,6 +657,9 @@ function renderSchedule(schedule) {
     .join("");
 
   elements.emptyState.classList.toggle("hidden", filtered.length > 0);
+  updateFilterResultLabel(filtered.length);
+  renderTagFilters();
+  syncFilterUrl();
 }
 
 function renderSavedNext(savedItems) {
@@ -583,11 +689,54 @@ function renderSavedNext(savedItems) {
   elements.savedNext.classList.remove("hidden");
 }
 
-function renderSaved(schedule) {
+function renderRecommendations(savedItems) {
+  const savedIds = new Set(savedItems.map((s) => s.id));
+  if (!savedItems.length) {
+    elements.recommendations.classList.add("hidden");
+    return;
+  }
+
+  const frequency = {};
+  savedItems.forEach((session) => {
+    [session.tag1, session.tag2].filter(Boolean).forEach((tag) => {
+      frequency[tag] = (frequency[tag] || 0) + 1;
+    });
+  });
+
+  const ranked = state.allSessions
+    .filter((session) => !savedIds.has(session.id))
+    .map((session) => {
+      const score = [session.tag1, session.tag2].filter(Boolean).reduce((sum, tag) => sum + (frequency[tag] || 0), 0);
+      return { session, score };
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5)
+    .map((item) => item.session);
+
+  if (!ranked.length) {
+    elements.recommendations.classList.add("hidden");
+    return;
+  }
+
+  elements.recommendationList.innerHTML = ranked
+    .map((item) =>
+      renderSessionCard(item, {
+        isSaved: false,
+        allowCalendar: false,
+      })
+    )
+    .join("");
+
+  elements.recommendations.classList.remove("hidden");
+}
+
+function renderSaved() {
   const savedIds = new Set(getSavedIds());
-  const savedItems = getSortedSavedItems(schedule.filter((item) => savedIds.has(item.id)));
+  const savedItems = getSortedSavedItems(state.allSessions.filter((item) => savedIds.has(item.id)));
 
   renderSavedNext(savedItems);
+  renderRecommendations(savedItems);
   updateSavedBadge(savedItems.length);
 
   elements.savedList.innerHTML = savedItems
@@ -606,30 +755,6 @@ function toIcsDate(date, time) {
   return `${date.replace(/-/g, "")}T${time.replace(":", "")}00`;
 }
 
-function buildIcsContent(items) {
-  const lines = [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    "PRODID:-//VFF//Guest Schedule//EN",
-    "CALSCALE:GREGORIAN",
-  ];
-
-  items.forEach((item) => {
-    const end = item.end_time || "23:59";
-    lines.push("BEGIN:VEVENT");
-    lines.push(`UID:${item.id}@vff2026`);
-    lines.push(`DTSTART;TZID=${CONFIG.timezone}:${toIcsDate(item.date, item.start_time)}`);
-    lines.push(`DTEND;TZID=${CONFIG.timezone}:${toIcsDate(item.date, end)}`);
-    lines.push(`SUMMARY:${item.title}`);
-    lines.push(`LOCATION:${item.venue || "Festival Venue"}`);
-    lines.push(`DESCRIPTION:${item.speaker ? `Speaker: ${item.speaker}` : "Festival Session"}`);
-    lines.push("END:VEVENT");
-  });
-
-  lines.push("END:VCALENDAR");
-  return lines.join("\n");
-}
-
 function downloadFile(content, fileName, mimeType) {
   const blob = new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
@@ -642,22 +767,49 @@ function downloadFile(content, fileName, mimeType) {
   URL.revokeObjectURL(url);
 }
 
-function exportSavedAsIcs(schedule) {
+function buildIcsContent(items) {
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//VFF//Guest Schedule//EN",
+    "CALSCALE:GREGORIAN",
+  ];
+
+  items.forEach((item) => {
+    const categories = [item.tag1, item.tag2].filter(Boolean).join(",");
+    const end = item.end_time || "23:59";
+
+    lines.push("BEGIN:VEVENT");
+    lines.push(`UID:${item.id}@vff2026`);
+    lines.push(`DTSTART;TZID=${CONFIG.timezone}:${toIcsDate(item.date, item.start_time)}`);
+    lines.push(`DTEND;TZID=${CONFIG.timezone}:${toIcsDate(item.date, end)}`);
+    lines.push(`SUMMARY:${item.title}`);
+    lines.push(`LOCATION:${item.venue || "Festival Venue"}`);
+    lines.push(`DESCRIPTION:${item.speaker ? `Speaker: ${item.speaker}` : "Festival Session"}`);
+    if (categories) lines.push(`CATEGORIES:${categories}`);
+    lines.push("END:VEVENT");
+  });
+
+  lines.push("END:VCALENDAR");
+  return lines.join("\n");
+}
+
+function exportSavedAsIcs() {
   const savedIds = new Set(getSavedIds());
-  const items = schedule.filter((item) => savedIds.has(item.id));
+  const items = state.allSessions.filter((item) => savedIds.has(item.id));
   if (!items.length) return;
   downloadFile(buildIcsContent(items), "vff-my-plan.ics", "text/calendar;charset=utf-8");
 }
 
-function exportSavedAsCsv(schedule) {
+function exportSavedAsCsv() {
   const savedIds = new Set(getSavedIds());
-  const items = schedule.filter((item) => savedIds.has(item.id));
+  const items = state.allSessions.filter((item) => savedIds.has(item.id));
   if (!items.length) return;
 
-  const header = "session_name,time,venue,day";
+  const header = "session_name,time,venue,day,tag1,tag2";
   const rows = items.map((item) => {
     const time = `${item.start_time}${item.end_time ? `-${item.end_time}` : ""}`;
-    return [item.title, time, item.venue, item.day]
+    return [item.title, time, item.venue, item.day, item.tag1 || "", item.tag2 || ""]
       .map((value) => `"${String(value).replace(/\"/g, '""')}"`)
       .join(",");
   });
@@ -668,25 +820,43 @@ function exportSavedAsCsv(schedule) {
 function getPlanUrl() {
   const ids = getSavedIds();
   const params = new URLSearchParams(window.location.search);
-  if (!ids.length) {
-    params.delete("plan");
-  } else {
-    params.set("plan", ids.map((id) => encodeURIComponent(id)).join(","));
-  }
-  return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+  if (!ids.length) params.delete("plan");
+  else params.set("plan", ids.join(","));
+  return `${window.location.origin}${window.location.pathname}?${params.toString()}#my-plan-anchor`;
+}
+
+function getTagSummary(items) {
+  const count = {};
+  items.forEach((item) => {
+    [item.tag1, item.tag2].filter(Boolean).forEach((tag) => {
+      count[tag] = (count[tag] || 0) + 1;
+    });
+  });
+
+  return Object.entries(count)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([tag, value]) => `${value} ${tag}`)
+    .join(", ");
 }
 
 async function sharePlan() {
+  const savedIds = new Set(getSavedIds());
+  const items = state.allSessions.filter((item) => savedIds.has(item.id));
+  const summary = getTagSummary(items);
+  const text = summary ? `My VFF Plan: ${summary}` : "My VFF Plan";
   const url = getPlanUrl();
+
   if (navigator.share) {
     try {
-      await navigator.share({ title: "My VFF Plan", text: "My saved sessions", url });
+      await navigator.share({ title: "My VFF Plan", text, url });
       return;
     } catch (err) {
       // Fallback below.
     }
   }
-  await navigator.clipboard.writeText(url);
+
+  await navigator.clipboard.writeText(`${text}\n${url}`);
   alert("Plan link copied.");
 }
 
@@ -694,6 +864,7 @@ async function shareApp() {
   const url = "https://vff-guest-2026.netlify.app/";
   const shareText =
     "🌱 Heading to Vegan Forest Festival 2026? Use this lightweight app to track our schedule, see what’s happening 'Now/Next,' and other useful tips. No bulky downloads needed! 📅 Check it out here: https://vff-guest-2026.netlify.app/";
+
   if (navigator.share) {
     try {
       await navigator.share({ title: "Vegan Forest Festival 2026", text: shareText, url });
@@ -702,25 +873,23 @@ async function shareApp() {
       // Fallback below.
     }
   }
+
   await navigator.clipboard.writeText(shareText);
   alert("Share message copied.");
 }
 
-function applyPlanFromQuery(schedule) {
+function applyPlanFromQuery() {
   const params = new URLSearchParams(window.location.search);
   const encoded = params.get("plan");
   if (!encoded) return;
 
-  const rawIds = encoded.split(",").map((part) => {
-    try {
-      return decodeURIComponent(part);
-    } catch (err) {
-      return part;
-    }
-  });
+  const incoming = encoded
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 
-  const valid = new Set(schedule.map((item) => item.id));
-  const filtered = rawIds.filter((id) => valid.has(id));
+  const valid = new Set(state.allSessions.map((item) => item.id));
+  const filtered = incoming.filter((id) => valid.has(id));
   if (filtered.length) setSavedIds([...new Set(filtered)]);
 }
 
@@ -733,7 +902,7 @@ function maybeAskNotifications() {
   Notification.requestPermission();
 }
 
-function maybeNotifyUpcoming(schedule) {
+function maybeNotifyUpcoming() {
   if (document.hidden) return;
   if (!("Notification" in window) || Notification.permission !== "granted") return;
 
@@ -742,7 +911,7 @@ function maybeNotifyUpcoming(schedule) {
 
   const now = getNowInTimezone();
   const nowMinutes = toMinutes(now.time);
-  const todaySaved = schedule.filter((item) => savedIds.has(item.id) && item.date === now.date);
+  const todaySaved = state.allSessions.filter((item) => savedIds.has(item.id) && item.date === now.date);
 
   const sentMap = (() => {
     try {
@@ -754,8 +923,7 @@ function maybeNotifyUpcoming(schedule) {
 
   let updated = false;
   todaySaved.forEach((item) => {
-    const start = toMinutes(item.start_time);
-    const diff = start - nowMinutes;
+    const diff = toMinutes(item.start_time) - nowMinutes;
     const key = `${item.date}|${item.id}`;
 
     if (diff <= 10 && diff >= 9 && !sentMap[key]) {
@@ -770,10 +938,10 @@ function maybeNotifyUpcoming(schedule) {
   if (updated) localStorage.setItem(NOTIFY_SENT_KEY, JSON.stringify(sentMap));
 }
 
-function updateNowCard(schedule) {
-  const nowNext = getNowNextIds(schedule);
-  const nowItem = schedule.find((item) => item.id === nowNext.nowId);
-  const nextItem = schedule.find((item) => item.id === nowNext.nextId);
+function updateNowCard() {
+  const nowNext = getNowNextIds(state.allSessions);
+  const nowItem = state.allSessions.find((item) => item.id === nowNext.nowId);
+  const nextItem = state.allSessions.find((item) => item.id === nowNext.nextId);
 
   if (nowItem) {
     elements.nowCard.innerHTML = `Happening now: <strong>${escapeHtml(nowItem.title)}</strong> in ${escapeHtml(
@@ -805,26 +973,60 @@ function setPowerModeState(isOn) {
 function initPowerMode() {
   const stored = localStorage.getItem(POWER_MODE_KEY);
   const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const isOn = stored ? stored === "1" : prefersDark;
-  setPowerModeState(isOn);
+  setPowerModeState(stored ? stored === "1" : prefersDark);
+}
+
+function syncBannerOffsets() {
+  const topVisible =
+    elements.a2hsBanner.style.display !== "none" &&
+    elements.a2hsBanner.classList.contains("is-visible");
+  const bottomVisible =
+    elements.swUpdateBanner.style.display !== "none" &&
+    elements.swUpdateBanner.classList.contains("is-visible");
+
+  document.body.classList.toggle("has-top-banner", topVisible);
+  document.body.classList.toggle("has-bottom-banner", bottomVisible);
+}
+
+function hideBanner(type) {
+  const el = banners[type] && banners[type]();
+  if (!el) return;
+
+  el.classList.remove("is-visible");
+  window.setTimeout(() => {
+    if (!el.classList.contains("is-visible")) {
+      el.classList.add("hidden");
+      el.style.display = "none";
+      syncBannerOffsets();
+    }
+  }, 220);
+}
+
+function showBanner(type) {
+  const el = banners[type] && banners[type]();
+  if (!el) return;
+
+  el.classList.remove("hidden");
+  el.style.display = "flex";
+  requestAnimationFrame(() => {
+    el.classList.add("is-visible");
+    syncBannerOffsets();
+  });
 }
 
 function initA2HS() {
-  if (localStorage.getItem(A2HS_DISMISSED_KEY) === "true") {
-    hideBanner("a2hs");
-    return;
-  }
+  if (localStorage.getItem(A2HS_DISMISSED_KEY) === "true") return;
 
   const visitCount = Number(localStorage.getItem(VISIT_KEY) || "0") + 1;
   localStorage.setItem(VISIT_KEY, String(visitCount));
 
   const snoozeUntil = Number(localStorage.getItem(A2HS_SNOOZE_UNTIL_KEY) || "0");
-  const snoozed = Date.now() < snoozeUntil;
+  if (Date.now() < snoozeUntil) return;
+
   const standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
+  if (standalone) return;
+
   const isiOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
-
-  if (standalone || snoozed) return;
-
   if (isiOS) {
     elements.a2hsBtn.classList.add("hidden");
     elements.a2hsText.textContent =
@@ -832,33 +1034,18 @@ function initA2HS() {
     if (visitCount >= 2) showBanner("a2hs");
     return;
   }
+
   elements.a2hsBtn.classList.remove("hidden");
   elements.a2hsText.textContent = "Add this app to your home screen for offline access 🌿";
-
   if (visitCount >= 3 && deferredA2HS) showBanner("a2hs");
-  setTimeout(() => {
-    if (deferredA2HS) showBanner("a2hs");
-  }, 30000);
-}
-
-function initMeta() {
-  elements.festivalDates.textContent = CONFIG.festivalDates;
-  elements.savedSort.value = getSavedSort();
 }
 
 function maybeShowSwBanner(registration) {
-  if (sessionStorage.getItem(UPDATE_DISMISSED_KEY) === "true") {
-    hideBanner("sw");
-    return;
-  }
-
-  const dismissedVersion = localStorage.getItem(SW_DISMISSED_VERSION_KEY);
-  if (dismissedVersion === SW_VERSION) return;
+  if (sessionStorage.getItem(UPDATE_DISMISSED_KEY) === "true") return;
+  if (localStorage.getItem(SW_DISMISSED_VERSION_KEY) === SW_VERSION) return;
 
   waitingWorker = registration.waiting || waitingWorker;
-  if (waitingWorker) {
-    showBanner("sw");
-  }
+  if (waitingWorker) showBanner("sw");
 }
 
 function dismissUpdateBanner() {
@@ -885,9 +1072,11 @@ function registerServiceWorker() {
     .register("./sw.js")
     .then((registration) => {
       maybeShowSwBanner(registration);
+
       registration.onupdatefound = () => {
         const newWorker = registration.installing;
         if (!newWorker) return;
+
         newWorker.onstatechange = () => {
           if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
             waitingWorker = registration.waiting || newWorker;
@@ -895,79 +1084,179 @@ function registerServiceWorker() {
           }
         };
       };
+
       registration.update().catch(() => {});
 
       navigator.serviceWorker.addEventListener("controllerchange", () => {
-        if (refreshingByUpdate) {
-          window.location.reload();
-        }
+        if (refreshingByUpdate) window.location.reload();
       });
     })
     .catch(() => {});
 }
 
-function bindEvents(schedule) {
+function initChromeNotice() {
+  const dismissed = localStorage.getItem(CHROME_NOTICE_DISMISSED_KEY) === "1";
+  if (dismissed) return;
+
+  const ua = navigator.userAgent;
+  const isChrome = /(Chrome|CriOS)/.test(ua) && !/(Edg|OPR|SamsungBrowser)/.test(ua);
+  const visits = Number(localStorage.getItem(VISIT_KEY) || "0");
+
+  if (!isChrome || visits <= 1) {
+    elements.chromeNotice.classList.remove("hidden");
+  }
+}
+
+function bindEvents() {
   [elements.dayFilter, elements.venueFilter, elements.searchInput].forEach((el) => {
-    el.addEventListener("input", () => renderSchedule(schedule));
+    el.addEventListener("input", () => {
+      renderSchedule();
+      renderSaved();
+    });
   });
 
-  elements.nowBtn.addEventListener("click", () => updateNowCard(schedule));
+  elements.nowBtn.addEventListener("click", updateNowCard);
 
   elements.dayTabs.addEventListener("click", (event) => {
     const button = event.target.closest(".day-tab");
     if (!button) return;
-    const day = button.dataset.day;
-    elements.dayFilter.value = day;
-    elements.dayTabs.querySelectorAll(".day-tab").forEach((tab) => {
-      tab.classList.toggle("active", tab === button);
-    });
-    renderSchedule(schedule);
+    elements.dayFilter.value = button.dataset.day;
+    renderSchedule();
+    renderSaved();
   });
 
   elements.scheduleList.addEventListener("click", (event) => {
-    const button = event.target.closest(".save-btn");
-    if (!button) return;
+    const saveBtn = event.target.closest(".save-btn");
+    const tagBtn = event.target.closest("[data-inline-tag]");
+
+    if (tagBtn) {
+      const tag = tagBtn.dataset.inlineTag;
+      state.selectedTags.add(tag);
+      saveSelectedTags();
+      announce(`${tag} filter applied, showing ${getFilteredSessions().length} sessions`);
+      renderSchedule();
+      return;
+    }
+
+    if (!saveBtn) return;
 
     const saved = new Set(getSavedIds());
-    const id = button.dataset.id;
-
+    const id = saveBtn.dataset.id;
     if (saved.has(id)) saved.delete(id);
     else saved.add(id);
 
     setSavedIds([...saved]);
-    renderSchedule(schedule);
-    renderSaved(schedule);
+    renderSchedule();
+    renderSaved();
     maybeAskNotifications();
   });
 
   elements.savedList.addEventListener("click", (event) => {
-    const removeButton = event.target.closest(".save-btn");
-    const calendarButton = event.target.closest(".calendar-btn");
+    const removeBtn = event.target.closest(".save-btn");
+    const calendarBtn = event.target.closest(".calendar-btn");
+    const tagBtn = event.target.closest("[data-inline-tag]");
 
-    if (calendarButton) {
-      const id = calendarButton.dataset.calendarId;
-      const item = schedule.find((s) => s.id === id);
-      if (item) downloadFile(buildIcsContent([item]), `${item.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.ics`, "text/calendar;charset=utf-8");
+    if (tagBtn) {
+      const tag = tagBtn.dataset.inlineTag;
+      state.selectedTags.add(tag);
+      saveSelectedTags();
+      renderSchedule();
       return;
     }
 
-    if (!removeButton) return;
+    if (calendarBtn) {
+      const id = calendarBtn.dataset.calendarId;
+      const session = state.allSessions.find((item) => item.id === id);
+      if (session) {
+        downloadFile(buildIcsContent([session]), `${session.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.ics`, "text/calendar;charset=utf-8");
+      }
+      return;
+    }
 
-    const id = removeButton.dataset.id;
+    if (!removeBtn) return;
     const saved = new Set(getSavedIds());
-    saved.delete(id);
+    saved.delete(removeBtn.dataset.id);
     setSavedIds([...saved]);
-    renderSchedule(schedule);
-    renderSaved(schedule);
+    renderSchedule();
+    renderSaved();
+  });
+
+  elements.recommendationList.addEventListener("click", (event) => {
+    const saveBtn = event.target.closest(".save-btn");
+    if (!saveBtn) return;
+
+    const saved = new Set(getSavedIds());
+    const id = saveBtn.dataset.id;
+    saved.add(id);
+    setSavedIds([...saved]);
+    renderSchedule();
+    renderSaved();
+  });
+
+  elements.tagFilters.addEventListener("click", (event) => {
+    const button = event.target.closest(".tag-filter-btn");
+    if (!button || button.disabled) return;
+
+    const tag = button.dataset.tag;
+    if (state.selectedTags.has(tag)) state.selectedTags.delete(tag);
+    else state.selectedTags.add(tag);
+
+    saveSelectedTags();
+    announce(`${tag} filter ${state.selectedTags.has(tag) ? "applied" : "removed"}, showing ${getFilteredSessions().length} sessions`);
+    renderSchedule();
+    renderSaved();
+  });
+
+  elements.tagFilters.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const button = event.target.closest(".tag-filter-btn");
+    if (!button) return;
+    event.preventDefault();
+    button.click();
+  });
+
+  elements.activeTags.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-remove-tag]");
+    if (!button) return;
+    state.selectedTags.delete(button.dataset.removeTag);
+    saveSelectedTags();
+    renderSchedule();
+    renderSaved();
+  });
+
+  document.querySelectorAll(".quick-filter").forEach((button) => {
+    if (!button.dataset.quick) return;
+    button.addEventListener("click", () => {
+      const set = QUICK_FILTERS[button.dataset.quick] || [];
+      state.selectedTags = new Set(set);
+      saveSelectedTags();
+      renderSchedule();
+      renderSaved();
+    });
+  });
+
+  elements.clearFiltersBtn.addEventListener("click", () => {
+    state.selectedTags.clear();
+    elements.dayFilter.value = "";
+    elements.venueFilter.value = "";
+    elements.searchInput.value = "";
+    saveSelectedTags();
+    renderSchedule();
+    renderSaved();
+  });
+
+  elements.filterToggleBtn.addEventListener("click", () => {
+    const collapsed = elements.tagFilterPanel.classList.toggle("collapsed");
+    elements.filterToggleBtn.setAttribute("aria-expanded", String(!collapsed));
   });
 
   elements.savedSort.addEventListener("change", () => {
     setSavedSort(elements.savedSort.value);
-    renderSaved(schedule);
+    renderSaved();
   });
 
-  elements.exportIcsBtn.addEventListener("click", () => exportSavedAsIcs(schedule));
-  elements.exportCsvBtn.addEventListener("click", () => exportSavedAsCsv(schedule));
+  elements.exportIcsBtn.addEventListener("click", exportSavedAsIcs);
+  elements.exportCsvBtn.addEventListener("click", exportSavedAsCsv);
   elements.sharePlanBtn.addEventListener("click", sharePlan);
   elements.shareAppBtn.addEventListener("click", shareApp);
 
@@ -981,8 +1270,8 @@ function bindEvents(schedule) {
   });
 
   elements.lowPowerToggle.addEventListener("click", () => {
-    const enabled = document.body.classList.contains("low-power");
-    setPowerModeState(!enabled);
+    const isOn = document.body.classList.contains("low-power");
+    setPowerModeState(!isOn);
   });
 
   elements.a2hsBtn.addEventListener("click", async () => {
@@ -991,7 +1280,7 @@ function bindEvents(schedule) {
       try {
         await deferredA2HS.userChoice;
       } catch (err) {
-        // Ignore.
+        // ignore
       }
       deferredA2HS = null;
       localStorage.removeItem(A2HS_SNOOZE_UNTIL_KEY);
@@ -1004,7 +1293,6 @@ function bindEvents(schedule) {
     event.stopPropagation();
     localStorage.setItem(A2HS_DISMISSED_KEY, "true");
     localStorage.setItem(A2HS_SNOOZE_UNTIL_KEY, String(Date.now() + 24 * 60 * 60 * 1000));
-    elements.a2hsBanner.style.display = "none";
     hideBanner("a2hs");
   });
 
@@ -1012,19 +1300,9 @@ function bindEvents(schedule) {
     event.preventDefault();
     deferredA2HS = event;
     if (localStorage.getItem(A2HS_DISMISSED_KEY) === "true") return;
+
     const snoozeUntil = Number(localStorage.getItem(A2HS_SNOOZE_UNTIL_KEY) || "0");
-    if (Date.now() >= snoozeUntil) {
-      showBanner("a2hs");
-    }
-  });
-
-  window.addEventListener("scroll", () => {
-    const show = window.scrollY > 280;
-    elements.scrollTopBtn.classList.toggle("hidden", !show);
-  });
-
-  elements.scrollTopBtn.addEventListener("click", () => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    if (Date.now() >= snoozeUntil) showBanner("a2hs");
   });
 
   elements.swRefreshBtn.addEventListener("click", forceUpdate);
@@ -1032,8 +1310,20 @@ function bindEvents(schedule) {
     event.preventDefault();
     event.stopPropagation();
     sessionStorage.setItem(UPDATE_DISMISSED_KEY, "true");
-    elements.swUpdateBanner.style.display = "none";
     dismissUpdateBanner();
+  });
+
+  elements.scrollTopBtn.addEventListener("click", () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+
+  window.addEventListener("scroll", () => {
+    elements.scrollTopBtn.classList.toggle("hidden", window.scrollY <= 280);
+  });
+
+  elements.chromeNoticeClose.addEventListener("click", () => {
+    localStorage.setItem(CHROME_NOTICE_DISMISSED_KEY, "1");
+    elements.chromeNotice.classList.add("hidden");
   });
 
   const myPlanLink = document.querySelector('a[href="#my-plan-anchor"]');
@@ -1050,29 +1340,41 @@ function bindEvents(schedule) {
   }
 }
 
+function initMeta() {
+  elements.festivalDates.textContent = CONFIG.festivalDates;
+  elements.savedSort.value = getSavedSort();
+}
+
 async function init() {
   initMeta();
   initPowerMode();
   initA2HS();
+  initChromeNotice();
 
-  const schedule = await loadSchedule();
-  applyPlanFromQuery(schedule);
+  state.allSessions = await loadSchedule();
+  loadSelectedTags();
 
-  renderFilters(schedule);
-  renderSchedule(schedule);
-  renderSaved(schedule);
-  updateNowCard(schedule);
-  bindEvents(schedule);
+  renderFilters();
+  applyUrlFilters();
+  applyPlanFromQuery();
+
+  renderFilters();
+  renderTagFilters();
+  renderSchedule();
+  renderSaved();
+  updateNowCard();
+
+  bindEvents();
 
   setInterval(() => {
-    renderSchedule(schedule);
-    renderSaved(schedule);
-    updateNowCard(schedule);
-    maybeNotifyUpcoming(schedule);
+    renderSchedule();
+    renderSaved();
+    updateNowCard();
+    maybeNotifyUpcoming();
   }, 60000);
 
   maybeAskNotifications();
-  maybeNotifyUpcoming(schedule);
+  maybeNotifyUpcoming();
   registerServiceWorker();
 }
 
