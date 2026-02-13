@@ -711,6 +711,7 @@ function renderSchedule() {
 }
 
 function renderSavedNext(savedItems) {
+  if (!elements.savedNext) return;
   if (!savedItems.length) {
     elements.savedNext.classList.add("hidden");
     return;
@@ -738,6 +739,7 @@ function renderSavedNext(savedItems) {
 }
 
 function renderRecommendations(savedItems) {
+  if (!elements.recommendations || !elements.recommendationList) return;
   const savedIds = new Set(savedItems.map((s) => s.id));
   if (!savedItems.length) {
     elements.recommendations.classList.add("hidden");
@@ -780,6 +782,7 @@ function renderRecommendations(savedItems) {
 }
 
 function renderSaved() {
+  if (!elements.savedList || !elements.savedEmpty) return;
   const savedIds = new Set(getSavedIds());
   const savedItems = getSortedSavedItems(state.allSessions.filter((item) => savedIds.has(item.id)));
 
@@ -1015,7 +1018,9 @@ function setPowerModeState(isOn) {
   document.body.classList.toggle("low-power", isOn);
   document.body.classList.toggle("dark-mode", isOn);
   localStorage.setItem(POWER_MODE_KEY, isOn ? "1" : "0");
-  elements.lowPowerToggle.textContent = isOn ? "Low Power Mode On 🌙" : "Low Power Mode 🌙";
+  if (elements.lowPowerToggle) {
+    elements.lowPowerToggle.textContent = isOn ? "Low Power Mode On 🌙" : "Low Power Mode 🌙";
+  }
 }
 
 function initPowerMode() {
@@ -1063,6 +1068,7 @@ function showBanner(type) {
 }
 
 function initA2HS() {
+  if (!elements.a2hsBanner || !elements.a2hsText || !elements.a2hsBtn) return;
   if (localStorage.getItem(A2HS_DISMISSED_KEY) === "true") return;
 
   const visitCount = Number(localStorage.getItem(VISIT_KEY) || "0") + 1;
@@ -1143,6 +1149,7 @@ function registerServiceWorker() {
 }
 
 function initChromeNotice() {
+  if (!elements.chromeNotice) return;
   const dismissed = localStorage.getItem(CHROME_NOTICE_DISMISSED_KEY) === "1";
   if (dismissed) return;
 
@@ -1156,6 +1163,10 @@ function initChromeNotice() {
 }
 
 function bindEvents() {
+  if (!elements.dayFilter || !elements.venueFilter || !elements.searchInput || !elements.scheduleList || !elements.savedList) {
+    console.error("[ui] Required filter/list elements missing. Check index.html ids.");
+    return;
+  }
   [elements.dayFilter, elements.venueFilter].forEach((el) => {
     el.addEventListener("input", () => {
       renderSchedule();
@@ -1257,17 +1268,19 @@ function bindEvents() {
     renderSaved();
   });
 
-  elements.recommendationList.addEventListener("click", (event) => {
-    const saveBtn = event.target.closest(".save-btn");
-    if (!saveBtn) return;
+  if (elements.recommendationList) {
+    elements.recommendationList.addEventListener("click", (event) => {
+      const saveBtn = event.target.closest(".save-btn");
+      if (!saveBtn) return;
 
-    const saved = new Set(getSavedIds());
-    const id = saveBtn.dataset.id;
-    saved.add(id);
-    setSavedIds([...saved]);
-    renderSchedule();
-    renderSaved();
-  });
+      const saved = new Set(getSavedIds());
+      const id = saveBtn.dataset.id;
+      saved.add(id);
+      setSavedIds([...saved]);
+      renderSchedule();
+      renderSaved();
+    });
+  }
 
   if (elements.tagFilters) {
     elements.tagFilters.addEventListener("click", (event) => {
@@ -1334,15 +1347,17 @@ function bindEvents() {
     });
   }
 
-  elements.savedSort.addEventListener("change", () => {
-    setSavedSort(elements.savedSort.value);
-    renderSaved();
-  });
+  if (elements.savedSort) {
+    elements.savedSort.addEventListener("change", () => {
+      setSavedSort(elements.savedSort.value);
+      renderSaved();
+    });
+  }
 
-  elements.exportIcsBtn.addEventListener("click", exportSavedAsIcs);
-  elements.exportCsvBtn.addEventListener("click", exportSavedAsCsv);
-  elements.sharePlanBtn.addEventListener("click", sharePlan);
-  elements.shareAppBtn.addEventListener("click", shareApp);
+  if (elements.exportIcsBtn) elements.exportIcsBtn.addEventListener("click", exportSavedAsIcs);
+  if (elements.exportCsvBtn) elements.exportCsvBtn.addEventListener("click", exportSavedAsCsv);
+  if (elements.sharePlanBtn) elements.sharePlanBtn.addEventListener("click", sharePlan);
+  if (elements.shareAppBtn) elements.shareAppBtn.addEventListener("click", shareApp);
 
   elements.travelButtons.forEach((button) => {
     button.addEventListener("click", () => {
@@ -1353,32 +1368,38 @@ function bindEvents() {
     });
   });
 
-  elements.lowPowerToggle.addEventListener("click", () => {
-    const isOn = document.body.classList.contains("low-power");
-    setPowerModeState(!isOn);
-  });
+  if (elements.lowPowerToggle) {
+    elements.lowPowerToggle.addEventListener("click", () => {
+      const isOn = document.body.classList.contains("low-power");
+      setPowerModeState(!isOn);
+    });
+  }
 
-  elements.a2hsBtn.addEventListener("click", async () => {
-    if (deferredA2HS) {
-      deferredA2HS.prompt();
-      try {
-        await deferredA2HS.userChoice;
-      } catch (err) {
-        // ignore
+  if (elements.a2hsBtn) {
+    elements.a2hsBtn.addEventListener("click", async () => {
+      if (deferredA2HS) {
+        deferredA2HS.prompt();
+        try {
+          await deferredA2HS.userChoice;
+        } catch (err) {
+          // ignore
+        }
+        deferredA2HS = null;
+        localStorage.removeItem(A2HS_SNOOZE_UNTIL_KEY);
       }
-      deferredA2HS = null;
-      localStorage.removeItem(A2HS_SNOOZE_UNTIL_KEY);
-    }
-    hideBanner("a2hs");
-  });
+      hideBanner("a2hs");
+    });
+  }
 
-  elements.a2hsClose.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    localStorage.setItem(A2HS_DISMISSED_KEY, "true");
-    localStorage.setItem(A2HS_SNOOZE_UNTIL_KEY, String(Date.now() + 24 * 60 * 60 * 1000));
-    hideBanner("a2hs");
-  });
+  if (elements.a2hsClose) {
+    elements.a2hsClose.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      localStorage.setItem(A2HS_DISMISSED_KEY, "true");
+      localStorage.setItem(A2HS_SNOOZE_UNTIL_KEY, String(Date.now() + 24 * 60 * 60 * 1000));
+      hideBanner("a2hs");
+    });
+  }
 
   window.addEventListener("beforeinstallprompt", (event) => {
     event.preventDefault();
@@ -1389,26 +1410,33 @@ function bindEvents() {
     if (Date.now() >= snoozeUntil) showBanner("a2hs");
   });
 
-  elements.swRefreshBtn.addEventListener("click", forceUpdate);
-  elements.swRefreshClose.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    sessionStorage.setItem(UPDATE_DISMISSED_KEY, "true");
-    dismissUpdateBanner();
-  });
+  if (elements.swRefreshBtn) elements.swRefreshBtn.addEventListener("click", forceUpdate);
+  if (elements.swRefreshClose) {
+    elements.swRefreshClose.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      sessionStorage.setItem(UPDATE_DISMISSED_KEY, "true");
+      dismissUpdateBanner();
+    });
+  }
 
-  elements.scrollTopBtn.addEventListener("click", () => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  });
+  if (elements.scrollTopBtn) {
+    elements.scrollTopBtn.addEventListener("click", () => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  }
 
   window.addEventListener("scroll", () => {
+    if (!elements.scrollTopBtn) return;
     elements.scrollTopBtn.classList.toggle("hidden", window.scrollY <= 280);
   });
 
-  elements.chromeNoticeClose.addEventListener("click", () => {
-    localStorage.setItem(CHROME_NOTICE_DISMISSED_KEY, "1");
-    elements.chromeNotice.classList.add("hidden");
-  });
+  if (elements.chromeNoticeClose && elements.chromeNotice) {
+    elements.chromeNoticeClose.addEventListener("click", () => {
+      localStorage.setItem(CHROME_NOTICE_DISMISSED_KEY, "1");
+      elements.chromeNotice.classList.add("hidden");
+    });
+  }
 
   const myPlanLink = document.querySelector('a[href="#my-plan-anchor"]');
   if (myPlanLink) {
@@ -1437,8 +1465,8 @@ function bindEvents() {
 }
 
 function initMeta() {
-  elements.festivalDates.textContent = CONFIG.festivalDates;
-  elements.savedSort.value = getSavedSort();
+  if (elements.festivalDates) elements.festivalDates.textContent = CONFIG.festivalDates;
+  if (elements.savedSort) elements.savedSort.value = getSavedSort();
 }
 
 async function init() {
