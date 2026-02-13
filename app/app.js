@@ -251,16 +251,21 @@ function normalizeSchedule(rows) {
       const day = (item.day || "").trim();
       const start_time = (item.start_time || "").trim();
       const venue = (item.venue || "").trim();
-      const title = (item.title || "").trim();
+      let title = (item.title || "").trim();
       const speaker = (item.speaker || "").trim();
       const end_time = (item.end_time || "").trim();
       const tag1 = normalizeTag(item.tag1 || item.tag_1);
       const tag2 = normalizeTag(item.tag2 || item.tag_2);
       const date = (item.date || "").trim() || dayToDate[day.toLowerCase()] || "";
 
-      if (!day || !start_time || !venue || !title) {
+      if (!day || !start_time || !venue) {
         errors.push(`Row ${index + 2}: required field missing.`);
         return null;
+      }
+
+      if (!title) {
+        title = "TBA Session";
+        errors.push(`Row ${index + 2}: missing title, defaulted to 'TBA Session'.`);
       }
 
       if (!timeRegex.test(start_time)) {
@@ -556,6 +561,16 @@ function applyUrlFilters() {
   if (tags.length) {
     state.selectedTags = new Set(tags);
   }
+}
+
+function hasUrlFilterParams() {
+  const params = new URLSearchParams(window.location.search);
+  return Boolean(params.get("day") || params.get("venue") || params.get("tags") || params.get("q"));
+}
+
+function sanitizeSelectedTags() {
+  const available = new Set(getAllTags());
+  state.selectedTags = new Set([...state.selectedTags].filter((tag) => available.has(tag)));
 }
 
 function announce(text) {
@@ -1352,10 +1367,19 @@ async function init() {
   initChromeNotice();
 
   state.allSessions = await loadSchedule();
+  console.log("[schedule] sessions loaded:", state.allSessions.length);
+  if (!state.allSessions.length) {
+    console.error("[schedule] Schedule data failed to load.");
+  }
   loadSelectedTags();
 
   renderFilters();
   applyUrlFilters();
+  sanitizeSelectedTags();
+  if (!hasUrlFilterParams()) {
+    state.selectedTags.clear();
+    localStorage.removeItem(TAGS_KEY);
+  }
   applyPlanFromQuery();
 
   renderFilters();
