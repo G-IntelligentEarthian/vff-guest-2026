@@ -7,7 +7,8 @@ const CONFIG = {
   timezone: "Asia/Kolkata",
 };
 
-const SW_VERSION = "v5";
+const SW_VERSION = "v6";
+const EXPECTED_SESSION_COUNT = 143;
 const STORAGE_KEY = "vff_saved_sessions";
 const SORT_KEY = "vff_saved_sort";
 const TAGS_KEY = "vff-selected-tags";
@@ -264,10 +265,7 @@ function normalizeSchedule(rows) {
         return null;
       }
 
-      if (!title) {
-        title = "TBA Session";
-        errors.push(`Row ${index + 2}: missing title, defaulted to 'TBA Session'.`);
-      }
+      if (!title) title = "TBA Session";
 
       if (!timeRegex.test(start_time)) {
         errors.push(`Row ${index + 2}: invalid time '${start_time}'.`);
@@ -310,8 +308,8 @@ function normalizeSchedule(rows) {
     console.warn("[schedule] validation errors:", errors);
   }
 
-  if (sessions.length !== 144) {
-    console.warn(`[schedule] imported ${sessions.length} sessions (expected 144).`);
+  if (sessions.length !== EXPECTED_SESSION_COUNT) {
+    console.warn(`[schedule] imported ${sessions.length} sessions (expected ${EXPECTED_SESSION_COUNT}).`);
   }
 
   return sessions;
@@ -509,10 +507,7 @@ function getTagClass(tag) {
 }
 
 function renderTagFilters() {
-  if (!elements.tagFilters) {
-    console.error("[ui] Tag filters container not found (#tag-filters).");
-    return;
-  }
+  if (!elements.tagFilters) return;
 
   const tags = getAllTags();
   const base = getFilteredSessions({ ignoreTags: true });
