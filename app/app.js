@@ -265,34 +265,72 @@ function normalizeSchedule(data) {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "");
 
-  return data
-    .filter((item) => item.day && item.start_time && item.title)
-    .map((item) => {
-      const normalized = {
-        ...item,
-        day: item.day.trim(),
-        date: (item.date || "").trim(),
-        start_time: (item.start_time || "").trim(),
-        end_time: (item.end_time || "").trim(),
-        venue: (item.venue || "").trim(),
-        title: item.title.trim(),
-        speaker: (item.speaker || "").trim(),
-        tags: (item.tags || "").trim(),
+  const dayToDate = {
+    friday: "2026-02-13",
+    saturday: "2026-02-14",
+    sunday: "2026-02-15",
+  };
+  const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
+  const errors = [];
+
+  const normalized = data
+    .map((item, index) => {
+      const day = (item.day || "").trim();
+      const start_time = (item.start_time || "").trim();
+      const venue = (item.venue || "").trim();
+      const title = (item.title || "").trim();
+      const speaker = (item.speaker || "").trim();
+      const tag1 = (item.tag1 || "").trim().toLowerCase();
+      const tag2 = (item.tag2 || "").trim().toLowerCase();
+      const date = (item.date || "").trim() || dayToDate[day.toLowerCase()] || "";
+      const end_time = (item.end_time || "").trim();
+
+      if (!day || !start_time || !venue || !title) {
+        errors.push(`Row ${index + 2}: missing required field(s).`);
+        return null;
+      }
+      if (!timeRegex.test(start_time)) {
+        errors.push(`Row ${index + 2}: invalid start_time '${start_time}'.`);
+        return null;
+      }
+      if (end_time && !timeRegex.test(end_time)) {
+        errors.push(`Row ${index + 2}: invalid end_time '${end_time}'.`);
+        return null;
+      }
+
+      const session = {
+        day,
+        date,
+        start_time,
+        end_time,
+        venue,
+        title,
+        speaker,
+        tag1: tag1 || "",
+        tag2: tag2 || "",
+        tags: [tag1, tag2].filter(Boolean).join("|"),
       };
 
-      normalized.id = [
-        token(normalized.date),
-        token(normalized.start_time),
-        token(normalized.venue),
-        token(normalized.title),
-        token(normalized.speaker),
+      session.id = [
+        token(session.date),
+        token(session.start_time),
+        token(session.venue),
+        token(session.title),
+        token(session.speaker),
       ]
         .filter(Boolean)
         .join("_");
 
-      return normalized;
+      return session;
     })
+    .filter(Boolean)
     .sort((a, b) => (a.date + a.start_time).localeCompare(b.date + b.start_time));
+
+  if (errors.length) {
+    console.warn("[schedule] validation errors:", errors);
+  }
+
+  return normalized;
 }
 
 async function loadSchedule() {
@@ -307,18 +345,28 @@ async function loadSchedule() {
     const [headerRow, ...dataRows] = rows;
     if (!headerRow || headerRow.length < 3) return null;
 
-    const headers = headerRow.map((h) => h.toLowerCase().trim());
+    const headers = headerRow.map((h) =>
+      h
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, "_")
+    );
     const items = dataRows.map((row) => {
       const item = {};
       headers.forEach((header, index) => {
         item[header] = row[index] || "";
       });
+      item.tag1 = item.tag1 || item.tag_1 || "";
+      item.tag2 = item.tag2 || item.tag_2 || "";
       return item;
     });
 
     const normalized = normalizeSchedule(items);
     if (normalized.length) {
       setCachedSchedule(normalized);
+      if (normalized.length !== 144) {
+        console.warn(`[schedule] imported ${normalized.length} sessions (expected 144).`);
+      }
       return normalized;
     }
     return null;
