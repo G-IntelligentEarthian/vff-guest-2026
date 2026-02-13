@@ -1,9 +1,10 @@
-const CACHE_NAME = "vff-cache-v4";
+const CACHE_NAME = "vff-cache-v5";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./schedule.json",
   "./schedule_extracted.csv",
   "./manifest.json",
   "./icon.svg",
@@ -47,7 +48,9 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(request.url);
   const isScheduleRequest =
-    url.pathname.endsWith("schedule_extracted.csv") || url.href.includes("/gviz/tq?tqx=out:csv");
+    url.pathname.endsWith("schedule.json") ||
+    url.pathname.endsWith("schedule_extracted.csv") ||
+    url.href.includes("/gviz/tq?tqx=out:csv");
 
   if (isScheduleRequest) {
     event.respondWith(
@@ -61,7 +64,7 @@ self.addEventListener("fetch", (event) => {
             }
             return response;
           })
-          .catch(() => caches.match("./schedule_extracted.csv"))
+          .catch(() => caches.match("./schedule.json") || caches.match("./schedule_extracted.csv"))
         );
       })
     );

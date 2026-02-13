@@ -2,11 +2,12 @@ const CONFIG = {
   festivalDates: "Feb 13–15, 2026",
   scheduleCsvUrl:
     "https://docs.google.com/spreadsheets/d/1Yw24ECctBPCMWJejqsEB41XYBx0d8wJGAl2MNSuCyeI/gviz/tq?tqx=out:csv",
+  localScheduleJsonUrl: "schedule.json",
   localScheduleUrl: "schedule_extracted.csv",
   timezone: "Asia/Kolkata",
 };
 
-const SW_VERSION = "v4";
+const SW_VERSION = "v5";
 const STORAGE_KEY = "vff_saved_sessions";
 const SORT_KEY = "vff_saved_sort";
 const TAGS_KEY = "vff-selected-tags";
@@ -317,7 +318,7 @@ function normalizeSchedule(rows) {
 }
 
 async function loadSchedule() {
-  const loadUrl = async (url) => {
+  const loadCsvUrl = async (url) => {
     if (!url) return null;
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) return null;
@@ -339,15 +340,32 @@ async function loadSchedule() {
     return sessions.length ? sessions : null;
   };
 
+  const loadJsonUrl = async (url) => {
+    if (!url) return null;
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    if (!Array.isArray(payload)) return null;
+    const sessions = normalizeSchedule(payload);
+    return sessions.length ? sessions : null;
+  };
+
   try {
-    const local = await loadUrl(CONFIG.localScheduleUrl);
+    const localJson = await loadJsonUrl(CONFIG.localScheduleJsonUrl);
+    if (localJson) return localJson;
+  } catch (err) {
+    console.warn("[schedule] local json load failed", err);
+  }
+
+  try {
+    const local = await loadCsvUrl(CONFIG.localScheduleUrl);
     if (local) return local;
   } catch (err) {
     console.warn("[schedule] local load failed", err);
   }
 
   try {
-    const remote = await loadUrl(CONFIG.scheduleCsvUrl);
+    const remote = await loadCsvUrl(CONFIG.scheduleCsvUrl);
     if (remote) return remote;
   } catch (err) {
     console.warn("[schedule] remote load failed", err);
