@@ -1156,8 +1156,19 @@ function initChromeNotice() {
 }
 
 function bindEvents() {
-  [elements.dayFilter, elements.venueFilter, elements.searchInput].forEach((el) => {
+  [elements.dayFilter, elements.venueFilter].forEach((el) => {
     el.addEventListener("input", () => {
+      renderSchedule();
+      renderSaved();
+    });
+    el.addEventListener("change", () => {
+      renderSchedule();
+      renderSaved();
+    });
+  });
+
+  ["input", "search", "keyup", "change"].forEach((eventName) => {
+    elements.searchInput.addEventListener(eventName, () => {
       renderSchedule();
       renderSaved();
     });
@@ -1178,6 +1189,7 @@ function bindEvents() {
     const tagBtn = event.target.closest("[data-inline-tag]");
 
     if (tagBtn) {
+      event.preventDefault();
       const tag = tagBtn.dataset.inlineTag;
       state.selectedTags.add(tag);
       saveSelectedTags();
@@ -1187,6 +1199,7 @@ function bindEvents() {
     }
 
     if (!saveBtn) return;
+    event.preventDefault();
 
     const saved = new Set(getSavedIds());
     const id = saveBtn.dataset.id;
@@ -1197,6 +1210,21 @@ function bindEvents() {
     renderSchedule();
     renderSaved();
     maybeAskNotifications();
+  });
+
+  // Fallback for mobile browsers that can miss delegated clicks during reflows.
+  document.addEventListener("click", (event) => {
+    if (event.defaultPrevented) return;
+    const saveBtn = event.target.closest("#schedule-list .save-btn");
+    if (!saveBtn) return;
+    event.preventDefault();
+    const saved = new Set(getSavedIds());
+    const id = saveBtn.dataset.id;
+    if (saved.has(id)) saved.delete(id);
+    else saved.add(id);
+    setSavedIds([...saved]);
+    renderSchedule();
+    renderSaved();
   });
 
   elements.savedList.addEventListener("click", (event) => {
@@ -1394,6 +1422,18 @@ function bindEvents() {
       }
     });
   }
+
+  document.querySelectorAll(".top-nav a[href^='#']").forEach((link) => {
+    if (link.getAttribute("href") === "#my-plan-anchor") return;
+    link.addEventListener("click", (event) => {
+      const hash = link.getAttribute("href");
+      const target = document.querySelector(hash);
+      if (!target) return;
+      event.preventDefault();
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      history.replaceState(null, "", hash);
+    });
+  });
 }
 
 function initMeta() {
