@@ -509,6 +509,11 @@ function getTagClass(tag) {
 }
 
 function renderTagFilters() {
+  if (!elements.tagFilters) {
+    console.error("[ui] Tag filters container not found (#tag-filters).");
+    return;
+  }
+
   const tags = getAllTags();
   const base = getFilteredSessions({ ignoreTags: true });
   const tagCounts = {};
@@ -530,11 +535,14 @@ function renderTagFilters() {
     })
     .join("");
 
-  elements.activeFilterCount.textContent = String(state.selectedTags.size);
+  if (elements.activeFilterCount) {
+    elements.activeFilterCount.textContent = String(state.selectedTags.size);
+  }
   renderActiveTagChips();
 }
 
 function renderActiveTagChips() {
+  if (!elements.activeTags) return;
   const tags = [...state.selectedTags];
   elements.activeTags.innerHTML = tags
     .map((tag) => `<button class="active-chip" data-remove-tag="${escapeHtml(tag)}">${escapeHtml(tag)} ×</button>`)
@@ -542,6 +550,7 @@ function renderActiveTagChips() {
 }
 
 function updateFilterResultLabel(filteredCount) {
+  if (!elements.filterResults) return;
   const total = state.allSessions.length;
   elements.filterResults.textContent = `Showing ${filteredCount} of ${total} sessions`;
 }
@@ -674,6 +683,10 @@ function getSortedSavedItems(savedItems) {
 }
 
 function renderSchedule() {
+  if (!elements.scheduleList) {
+    console.error("[ui] Schedule container not found (#schedule-list).");
+    return;
+  }
   const savedIds = new Set(getSavedIds());
   const nowNext = getNowNextIds(state.allSessions);
   const filtered = getFilteredSessions();
@@ -689,7 +702,9 @@ function renderSchedule() {
     })
     .join("");
 
-  elements.emptyState.classList.toggle("hidden", filtered.length > 0);
+  if (elements.emptyState) {
+    elements.emptyState.classList.toggle("hidden", filtered.length > 0);
+  }
   updateFilterResultLabel(filtered.length);
   renderTagFilters();
   syncFilterUrl();
@@ -1226,36 +1241,40 @@ function bindEvents() {
     renderSaved();
   });
 
-  elements.tagFilters.addEventListener("click", (event) => {
-    const button = event.target.closest(".tag-filter-btn");
-    if (!button || button.disabled) return;
+  if (elements.tagFilters) {
+    elements.tagFilters.addEventListener("click", (event) => {
+      const button = event.target.closest(".tag-filter-btn");
+      if (!button || button.disabled) return;
 
-    const tag = button.dataset.tag;
-    if (state.selectedTags.has(tag)) state.selectedTags.delete(tag);
-    else state.selectedTags.add(tag);
+      const tag = button.dataset.tag;
+      if (state.selectedTags.has(tag)) state.selectedTags.delete(tag);
+      else state.selectedTags.add(tag);
 
-    saveSelectedTags();
-    announce(`${tag} filter ${state.selectedTags.has(tag) ? "applied" : "removed"}, showing ${getFilteredSessions().length} sessions`);
-    renderSchedule();
-    renderSaved();
-  });
+      saveSelectedTags();
+      announce(`${tag} filter ${state.selectedTags.has(tag) ? "applied" : "removed"}, showing ${getFilteredSessions().length} sessions`);
+      renderSchedule();
+      renderSaved();
+    });
 
-  elements.tagFilters.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    const button = event.target.closest(".tag-filter-btn");
-    if (!button) return;
-    event.preventDefault();
-    button.click();
-  });
+    elements.tagFilters.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const button = event.target.closest(".tag-filter-btn");
+      if (!button) return;
+      event.preventDefault();
+      button.click();
+    });
+  }
 
-  elements.activeTags.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-remove-tag]");
-    if (!button) return;
-    state.selectedTags.delete(button.dataset.removeTag);
-    saveSelectedTags();
-    renderSchedule();
-    renderSaved();
-  });
+  if (elements.activeTags) {
+    elements.activeTags.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-remove-tag]");
+      if (!button) return;
+      state.selectedTags.delete(button.dataset.removeTag);
+      saveSelectedTags();
+      renderSchedule();
+      renderSaved();
+    });
+  }
 
   document.querySelectorAll(".quick-filter").forEach((button) => {
     if (!button.dataset.quick) return;
@@ -1268,20 +1287,24 @@ function bindEvents() {
     });
   });
 
-  elements.clearFiltersBtn.addEventListener("click", () => {
-    state.selectedTags.clear();
-    elements.dayFilter.value = "";
-    elements.venueFilter.value = "";
-    elements.searchInput.value = "";
-    saveSelectedTags();
-    renderSchedule();
-    renderSaved();
-  });
+  if (elements.clearFiltersBtn) {
+    elements.clearFiltersBtn.addEventListener("click", () => {
+      state.selectedTags.clear();
+      elements.dayFilter.value = "";
+      elements.venueFilter.value = "";
+      elements.searchInput.value = "";
+      saveSelectedTags();
+      renderSchedule();
+      renderSaved();
+    });
+  }
 
-  elements.filterToggleBtn.addEventListener("click", () => {
-    const collapsed = elements.tagFilterPanel.classList.toggle("collapsed");
-    elements.filterToggleBtn.setAttribute("aria-expanded", String(!collapsed));
-  });
+  if (elements.filterToggleBtn && elements.tagFilterPanel) {
+    elements.filterToggleBtn.addEventListener("click", () => {
+      const collapsed = elements.tagFilterPanel.classList.toggle("collapsed");
+      elements.filterToggleBtn.setAttribute("aria-expanded", String(!collapsed));
+    });
+  }
 
   elements.savedSort.addEventListener("change", () => {
     setSavedSort(elements.savedSort.value);
