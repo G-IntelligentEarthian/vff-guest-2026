@@ -1,4 +1,4 @@
-day,start_time,venue,title,speaker,tag 1,tag 2
+day,start_time,venue,title,speaker,tag1,tag2
 Friday,14:00,Tea Hut,Andhra Notkodi Kura,Mohan Kishore,food-demo,
 Friday,15:00,Tea Hut,Rasmalai Curries,Soma,food-demo,
 Friday,16:00,Tea Hut,Non-Veg Curries but Vegan,Narhari,food-demo,
@@ -38,7 +38,7 @@ Friday,21:00,Mud Pool,Psychill,Vyomanaut,music,
 Friday,22:30,Mud Pool,Reggae,Rakesh,music,
 Friday,11:00,The Circle,Speed Friending,Dhaval,community,
 Friday,14:00,The Circle,Nature Walk for Kids,Naresh,kids,nature
-Friday,14:30,The Circle,Movement,"Mindset. Nutrition, movement	wellness",Nutrition,Sandeep
+Friday,14:30,The Circle,"Movement, Mindset, Nutrition, wellness",Sandeep,fitness,
 Friday,15:30,The Circle,Happy Childlike Body Movements,Sravani,movement,kids
 Friday,16:30,The Circle,Tree Planting,Naeem,nature,community
 Friday,14:00,Banyan Tree,Jam Session,Everyone,music,community
