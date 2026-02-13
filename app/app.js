@@ -1368,6 +1368,7 @@ async function init() {
 
   state.allSessions = await loadSchedule();
   console.log("[schedule] sessions loaded:", state.allSessions.length);
+  console.log("[schedule] first session:", state.allSessions[0] || null);
   if (!state.allSessions.length) {
     console.error("[schedule] Schedule data failed to load.");
   }
